@@ -18,10 +18,11 @@ def _score_vector(
     matrix: TravelMatrix,
     matrix_nodes: np.ndarray,
     service_values: np.ndarray,
+    travel_importance: float = 1.0,
 ) -> np.ndarray:
     """Score every family from one current matrix position."""
     scores = np.zeros_like(rewards, dtype=np.float64)
-    denominator = matrix.row_minutes(position_node)[matrix_nodes] + service_values
+    denominator = travel_importance * matrix.row_minutes(position_node)[matrix_nodes] + service_values
     np.divide(rewards, denominator, out=scores, where=denominator > 0)
     return scores
 
@@ -56,7 +57,8 @@ def construct_week(
     scores = np.vstack(
         [
             _score_vector(
-                reward_values[day], 0, matrix, matrix_nodes, service_values
+                reward_values[day], 0, matrix, matrix_nodes, service_values,
+                config.travel_importance,
             )
             for day in slot_days
         ]
@@ -106,7 +108,8 @@ def construct_week(
         current_times[slot] = total_time(routes[slot], matrix, service_times, family_index)
         positions[slot] = matrix_nodes[family_position]
         scores[slot] = _score_vector(
-            reward_values[day], int(positions[slot]), matrix, matrix_nodes, service_values
+            reward_values[day], int(positions[slot]), matrix, matrix_nodes,
+            service_values, config.travel_importance,
         )
     family_positions = {
         int(family_id): position for position, family_id in enumerate(family_ids)

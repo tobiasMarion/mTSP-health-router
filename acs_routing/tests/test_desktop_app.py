@@ -14,6 +14,7 @@ from acs_routing.desktop_app import (
     update_csv_last_visit_dates,
 )
 from acs_routing.models import Family, Route, WeekState
+from acs_routing.reward import family_reward
 from acs_routing.reports import weekly_report
 from acs_routing.travel_matrix import TravelMatrix
 
@@ -41,6 +42,25 @@ FIXED_FAMILIES_CSV = """id,lat,lon,bedridden,physical_disability,mental_disabili
 
 
 class DesktopAppTest(unittest.TestCase):
+    def test_priority_controls_change_reward_without_changing_default(self) -> None:
+        from dataclasses import replace
+
+        family = Family(
+            id=1, lat=-23.55, lon=-46.63, risk_class="R3",
+            sentinels={}, fixed_day=None,
+            last_visit_date=date(2026, 1, 1),
+        )
+        monday = date(2026, 11, 9)
+        normal = family_reward(family, 1, monday, Config())
+        no_risk = family_reward(
+            family, 1, monday, replace(Config(), risk_importance=0)
+        )
+        no_delay = family_reward(
+            family, 1, monday, replace(Config(), delay_importance=0)
+        )
+        self.assertLess(no_risk, normal)
+        self.assertLess(no_delay, normal)
+
     def test_local_matrix_is_symmetric_and_has_zero_diagonal(self) -> None:
         matrix = TravelMatrix.from_coordinates(
             [(-23.55, -46.63), (-23.551, -46.631)]

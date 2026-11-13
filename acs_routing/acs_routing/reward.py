@@ -67,16 +67,19 @@ def family_reward(
     config: Config = DEFAULT_CONFIG,
 ) -> float:
     """Return one family's reward for a one-based planning day."""
-    weight = risk_weight(family.risk_class, config)
-    bonus = delay_bonus(_days_late(family, monday_date, config), config)
+    weight = risk_weight(family.risk_class, config) ** config.risk_importance
+    bonus = 1.0 + config.delay_importance * (
+        delay_bonus(_days_late(family, monday_date, config), config) - 1.0
+    )
     if is_fixed_active(family, monday_date):
-        value = config.a_fixed * weight if day == family.fixed_day else 0.0
-        maximum_reward = config.a_fixed * weight * bonus
+        value = config.a_fixed * config.fixed_day_importance * weight if day == family.fixed_day else 0.0
+        maximum_reward = config.a_fixed * config.fixed_day_importance * weight
     else:
         distance = abs(day - _ideal_day(family, monday_date, config))
-        value = config.a_flex * weight * bonus * one_sided_gaussian(
+        day_factor = one_sided_gaussian(
             -float(distance), 0.0, config.sigma
-        )
+        ) ** config.ideal_day_importance
+        value = config.a_flex * weight * bonus * day_factor
         maximum_reward = config.a_flex * weight * bonus
     epsilon = config.epsilon_fraction * maximum_reward
     return value if value >= epsilon else 0.0

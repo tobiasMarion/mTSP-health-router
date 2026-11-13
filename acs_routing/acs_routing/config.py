@@ -53,6 +53,11 @@ class Config:
     delay_bonus_cap: float = 2.5
     sigma: float = 1.0
     epsilon_fraction: float = 0.01
+    risk_importance: float = 1.0
+    delay_importance: float = 1.0
+    ideal_day_importance: float = 1.0
+    fixed_day_importance: float = 1.0
+    travel_importance: float = 1.0
     week_days: int = 5
     agents_per_day: int = 1
     osrm_profile: str = "foot"

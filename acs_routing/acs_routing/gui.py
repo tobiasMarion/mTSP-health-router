@@ -7,6 +7,7 @@ import time
 import tkinter as tk
 import importlib.util
 import webbrowser
+from dataclasses import replace
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
@@ -18,6 +19,7 @@ from .desktop_app import (
     update_csv_last_visit_dates,
 )
 from .models import Family, WeekState
+from .config import DEFAULT_CONFIG
 from .state import save_state
 
 
@@ -38,6 +40,13 @@ class RoutingApp:
         self.agents = tk.StringVar(value="1")
         self.shift_minutes = tk.StringVar(value="360")
         self.weeks_ahead = tk.StringVar(value="0")
+        self.importance = {
+            key: tk.DoubleVar(value=1.0)
+            for key in (
+                "risk_importance", "delay_importance", "ideal_day_importance",
+                "fixed_day_importance", "travel_importance",
+            )
+        }
         self.status = tk.StringVar(value="Selecione um arquivo CSV para começar.")
         self.map_path: Path | None = None
         self._families: list[Family] | None = None
@@ -46,7 +55,6 @@ class RoutingApp:
         frame = ttk.Frame(root, padding=16)
         frame.pack(fill=tk.BOTH, expand=True)
         frame.columnconfigure(1, weight=1)
-        frame.rowconfigure(6, weight=1)
 
         ttk.Label(frame, text="Arquivo de famílias (CSV):").grid(
             row=0, column=0, sticky="w", padx=(0, 8), pady=6
@@ -95,20 +103,73 @@ class RoutingApp:
         )
         self.process_button.grid(row=4, column=0, columnspan=3, sticky="ew", pady=10)
 
+        ttk.Button(
+            frame, text="Ajustar prioridades do planejamento",
+            command=self.open_priorities,
+        ).grid(row=5, column=0, columnspan=3, sticky="ew", pady=(0, 8))
+
         self.map_button = ttk.Button(
             frame,
             text="Abrir mapa das rotas",
             command=self.open_map,
             state=tk.DISABLED,
         )
-        self.map_button.grid(row=5, column=0, columnspan=3, sticky="ew", pady=(0, 10))
+        self.map_button.grid(row=6, column=0, columnspan=3, sticky="ew", pady=(0, 10))
 
         ttk.Label(frame, textvariable=self.status).grid(
-            row=6, column=0, columnspan=3, sticky="w", pady=(0, 8)
+            row=7, column=0, columnspan=3, sticky="w", pady=(0, 8)
         )
         self.output = ScrolledText(frame, wrap=tk.WORD, font=("Consolas", 10))
-        self.output.grid(row=7, column=0, columnspan=3, sticky="nsew")
-        frame.rowconfigure(7, weight=1)
+        self.output.grid(row=8, column=0, columnspan=3, sticky="nsew")
+        frame.rowconfigure(8, weight=1)
+
+    def open_priorities(self) -> None:
+        """Explain and adjust the weights used to choose visits."""
+        window = tk.Toplevel(self.root)
+        window.title("Prioridades do planejamento")
+        window.geometry("610x560")
+        window.transient(self.root)
+        window.grab_set()
+        body = ttk.Frame(window, padding=18)
+        body.pack(fill=tk.BOTH, expand=True)
+        ttk.Label(
+            body,
+            text="O que deve pesar mais na escolha das visitas?",
+            font=("TkDefaultFont", 12, "bold"),
+        ).pack(anchor="w")
+        ttk.Label(
+            body,
+            text="Arraste para a esquerda para reduzir ou desligar; para a direita para aumentar.\n"
+                 "O padrão fica no meio. Os limites de tempo e dias fixos continuam sendo respeitados.",
+            wraplength=570,
+        ).pack(anchor="w", pady=(5, 12))
+        options = (
+            ("risk_importance", "Risco da família", "Dá preferência a famílias com maior risco de saúde."),
+            ("delay_importance", "Atraso da visita", "Aumenta a prioridade de visitas que já passaram do prazo."),
+            ("ideal_day_importance", "Dia ideal", "Prefere agendar cada visita perto do dia recomendado."),
+            ("fixed_day_importance", "Visitas com dia marcado", "Dá prioridade às famílias que precisam de um dia específico."),
+            ("travel_importance", "Deslocamento curto", "Favorece visitas próximas da posição atual do agente."),
+        )
+        for key, title, description in options:
+            section = ttk.Frame(body)
+            section.pack(fill="x", pady=5)
+            ttk.Label(section, text=title, font=("TkDefaultFont", 10, "bold")).pack(anchor="w")
+            ttk.Label(section, text=description, wraplength=570).pack(anchor="w")
+            row = ttk.Frame(section)
+            row.pack(fill="x")
+            ttk.Label(row, text="Desligado").pack(side="left")
+            tk.Scale(
+                row, from_=0, to=2, resolution=0.25, orient="horizontal",
+                variable=self.importance[key], showvalue=False,
+            ).pack(side="left", fill="x", expand=True)
+            ttk.Label(row, text="Mais importante").pack(side="left")
+        actions = ttk.Frame(body)
+        actions.pack(fill="x", pady=(12, 0))
+        ttk.Button(
+            actions, text="Restaurar padrão",
+            command=lambda: [value.set(1.0) for value in self.importance.values()],
+        ).pack(side="left")
+        ttk.Button(actions, text="Concluído", command=window.destroy).pack(side="right")
 
     def choose_csv(self) -> None:
         path = filedialog.askopenfilename(
@@ -148,7 +209,8 @@ class RoutingApp:
         self.map_button.configure(state=tk.DISABLED)
         threading.Thread(
             target=self._process,
-            args=(path, agents, shift_minutes, weeks_ahead),
+            args=(path, agents, shift_minutes, weeks_ahead,
+                  {key: value.get() for key, value in self.importance.items()}),
             daemon=True,
         ).start()
 
@@ -158,6 +220,7 @@ class RoutingApp:
         agents: int,
         shift_minutes: int,
         weeks_ahead: int,
+        importance: dict[str, float],
     ) -> None:
         try:
             solver_started_at = time.perf_counter()
@@ -166,6 +229,7 @@ class RoutingApp:
                 agents,
                 shift_minutes,
                 weeks_ahead=weeks_ahead,
+                config=replace(DEFAULT_CONFIG, **importance),
             )
             solver_seconds = time.perf_counter() - solver_started_at
             result = format_plan(
