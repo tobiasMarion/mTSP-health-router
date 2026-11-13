@@ -19,6 +19,7 @@ class Family:
     last_visit_date: date | None
     fixed_period_weeks: int | None = None
     fixed_phase_weeks: int | None = None
+    manual_priority: str = "normal"
 
 
 @dataclass

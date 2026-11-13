@@ -63,7 +63,60 @@ MANUAL_HEADERS = [
     "illiteracy", "under_6_months", "over_70_years", "hypertension", "diabetes",
     "people_per_room", "fixed_day", "fixed_period_weeks", "fixed_phase_weeks",
     "last_visit_date",
+    "manual_priority",
 ]
+
+
+def family_priorities(path: str | Path) -> dict[int, str]:
+    """List IDs and current manual priorities for the selection dialog."""
+    path = Path(path)
+    if path.suffix.lower() == ".xlsx":
+        _, rows = spreadsheet_rows(path)
+    else:
+        with path.open(newline="", encoding="utf-8") as file:
+            rows = list(csv.DictReader(file))
+    return {int(row["id"]): row.get("manual_priority") or "normal" for row in rows}
+
+
+def set_family_priority(path: str | Path, family_id: int, priority: str) -> None:
+    """Persist one family's priority in its CSV or Excel source."""
+    from .families_loader import MANUAL_PRIORITY_WEIGHTS
+
+    if priority not in MANUAL_PRIORITY_WEIGHTS:
+        raise ValueError("Prioridade inválida.")
+    path = Path(path)
+    if path.suffix.lower() == ".xlsx":
+        workbook = _openpyxl().load_workbook(path)
+        sheet = workbook.active
+        headers = [cell.value for cell in sheet[1]]
+        if "id" not in headers:
+            raise ValueError("A planilha precisa da coluna id.")
+        id_column = headers.index("id") + 1
+        matches = [row for row in range(2, sheet.max_row + 1)
+                   if sheet.cell(row, id_column).value is not None
+                   and int(sheet.cell(row, id_column).value) == family_id]
+        if len(matches) != 1:
+            raise ValueError("Família não encontrada ou ID repetido.")
+        if "manual_priority" not in headers:
+            headers.append("manual_priority")
+            sheet.cell(1, len(headers), "manual_priority")
+        sheet.cell(matches[0], headers.index("manual_priority") + 1, priority)
+        workbook.save(path)
+    else:
+        with path.open(newline="", encoding="utf-8") as file:
+            reader = csv.DictReader(file)
+            headers = list(reader.fieldnames or [])
+            rows = list(reader)
+        matches = [row for row in rows if int(row["id"]) == family_id]
+        if len(matches) != 1:
+            raise ValueError("Família não encontrada ou ID repetido.")
+        if "manual_priority" not in headers:
+            headers.append("manual_priority")
+        matches[0]["manual_priority"] = priority
+        with path.open("w", newline="", encoding="utf-8") as file:
+            writer = csv.DictWriter(file, fieldnames=headers)
+            writer.writeheader()
+            writer.writerows(rows)
 
 
 def save_manual_family(path: str | Path, row: dict[str, str]) -> None:
@@ -74,7 +127,7 @@ def save_manual_family(path: str | Path, row: dict[str, str]) -> None:
             reader = csv.DictReader(file)
             headers = list(reader.fieldnames or [])
             records = list(reader)
-        required = set(MANUAL_HEADERS) - {"people_per_room", "last_visit_date"}
+        required = set(MANUAL_HEADERS) - {"people_per_room", "last_visit_date", "manual_priority"}
         required -= {"fixed_day", "fixed_period_weeks", "fixed_phase_weeks"}
         if not required <= set(headers) or not (
             "people_per_room" in headers or
@@ -85,6 +138,8 @@ def save_manual_family(path: str | Path, row: dict[str, str]) -> None:
             raise ValueError("Já existe uma família com esse ID.")
         if "last_visit_date" not in headers:
             headers.append("last_visit_date")
+        if "manual_priority" not in headers:
+            headers.append("manual_priority")
         for name in ("fixed_day", "fixed_period_weeks", "fixed_phase_weeks"):
             if name not in headers and row.get(name):
                 headers.append(name)

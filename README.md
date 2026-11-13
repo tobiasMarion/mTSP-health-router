@@ -118,6 +118,7 @@ python3 -m acs_routing.main \
 | `bedridden`, `physical_disability`, `mental_disability`, `poor_sanitation`, `severe_malnutrition`, `drug_addiction`, `unemployment`, `illiteracy`, `under_6_months`, `over_70_years`, `hypertension`, `diabetes` | sim | Sentinelas binárias (`0` ou `1`) |
 | `people_per_room` **ou** `people_per_room_gt_1` + `people_per_room_eq_1` | sim | Densidade domiciliar (uma das duas formas) |
 | `last_visit_date` | não | Data da última visita (`YYYY-MM-DD`). Se ausente, usa `initial_last_visit_date` |
+| `manual_priority` | não | Prioridade escolhida: `baixa`, `normal`, `alta` ou `urgente` (padrão: `normal`) |
 | `fixed_day` | não | Dia fixo de visita, de 1 a 5 |
 | `fixed_period_weeks`, `fixed_phase_weeks` | não* | Periodicidade e fase da visita fixa. *Obrigatórias quando `fixed_day` é informado |
 

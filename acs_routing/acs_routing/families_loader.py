@@ -15,6 +15,7 @@ _SENTINEL_COLUMNS = set(SENTINEL_POINTS) - {
     "people_per_room_gt_1",
     "people_per_room_eq_1",
 }
+MANUAL_PRIORITY_WEIGHTS = {"baixa": 0.5, "normal": 1.0, "alta": 2.0, "urgente": 4.0}
 
 
 def _parse_binary(value: str, column: str) -> bool:
@@ -82,6 +83,9 @@ def load_families(
                     if row.get("last_visit_date")
                     else initial_last_visit_date
                 )
+                manual_priority = (row.get("manual_priority") or "normal").strip().lower()
+                if manual_priority not in MANUAL_PRIORITY_WEIGHTS:
+                    raise ValueError("manual_priority deve ser baixa, normal, alta ou urgente")
                 sentinels: dict[str, Any] = {
                     name: _parse_binary(row[name], name) for name in _SENTINEL_COLUMNS
                 }
@@ -107,6 +111,7 @@ def load_families(
                         last_visit_date,
                         fixed_period,
                         fixed_phase,
+                        manual_priority,
                     )
                 )
             except (KeyError, TypeError, ValueError) as error:

@@ -8,6 +8,7 @@ import numpy as np
 
 from .config import Config, DEFAULT_CONFIG
 from .models import Family
+from .families_loader import MANUAL_PRIORITY_WEIGHTS
 from .risk import risk_weight
 
 
@@ -67,7 +68,8 @@ def family_reward(
     config: Config = DEFAULT_CONFIG,
 ) -> float:
     """Return one family's reward for a one-based planning day."""
-    weight = risk_weight(family.risk_class, config) ** config.risk_importance
+    weight = (risk_weight(family.risk_class, config) ** config.risk_importance
+              * MANUAL_PRIORITY_WEIGHTS[family.manual_priority])
     bonus = 1.0 + config.delay_importance * (
         delay_bonus(_days_late(family, monday_date, config), config) - 1.0
     )

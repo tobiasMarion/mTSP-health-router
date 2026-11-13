@@ -24,7 +24,8 @@ from .models import Family, WeekState
 from .config import DEFAULT_CONFIG
 from .state import save_state
 from .family_files import (
-    MANUAL_HEADERS, save_manual_family, spreadsheet_rows, update_spreadsheet_dates,
+    MANUAL_HEADERS, family_priorities, save_manual_family, set_family_priority,
+    spreadsheet_rows, update_spreadsheet_dates,
 )
 from .families_loader import load_families
 
@@ -65,8 +66,8 @@ class RoutingApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("Planejamento de visitas — ACS")
-        self.root.geometry("960x760")
-        self.root.minsize(760, 650)
+        self.root.geometry("960x650")
+        self.root.minsize(760, 600)
         _style(root)
 
         self.csv_path = tk.StringVar()
@@ -85,25 +86,25 @@ class RoutingApp:
         self._families: list[Family] | None = None
         self._state: WeekState | None = None
 
-        page = ttk.Frame(root, style="App.TFrame", padding=22)
+        page = ttk.Frame(root, style="App.TFrame", padding=14)
         page.pack(fill="both", expand=True)
         ttk.Label(page, text="Planejamento de visitas", style="Heading.TLabel").pack(anchor="w")
-        ttk.Label(page, text="Organize as famílias e gere as rotas da semana.", style="Intro.TLabel").pack(anchor="w", pady=(2, 18))
+        ttk.Label(page, text="Organize as famílias e gere as rotas da semana.", style="Intro.TLabel").pack(anchor="w", pady=(0, 8))
 
-        source = ttk.Frame(page, style="Card.TFrame", padding=16)
-        source.pack(fill="x", pady=(0, 12))
+        source = ttk.Frame(page, style="Card.TFrame", padding=10)
+        source.pack(fill="x", pady=(0, 8))
         source.columnconfigure(0, weight=1)
-        ttk.Label(source, text="1  Famílias", style="Section.TLabel").grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 8))
-        ttk.Label(source, text="Importe um CSV ou Excel, ou cadastre uma família.", style="Muted.TLabel").grid(row=1, column=0, columnspan=3, sticky="w", pady=(0, 9))
-        ttk.Entry(source, textvariable=self.csv_path, state="readonly").grid(row=2, column=0, sticky="ew", padx=(0, 8))
-        ttk.Button(source, text="Escolher arquivo", command=self.choose_csv).grid(row=2, column=1, padx=(0, 8))
-        ttk.Button(source, text="Cadastrar família", command=self.add_family).grid(row=2, column=2)
+        ttk.Label(source, text="1  Famílias", style="Section.TLabel").grid(row=0, column=0, columnspan=4, sticky="w", pady=(0, 5))
+        ttk.Entry(source, textvariable=self.csv_path, state="readonly").grid(row=1, column=0, sticky="ew", padx=(0, 8))
+        ttk.Button(source, text="Escolher arquivo", command=self.choose_csv).grid(row=1, column=1, padx=(0, 8))
+        ttk.Button(source, text="Cadastrar família", command=self.add_family).grid(row=1, column=2, padx=(0, 8))
+        ttk.Button(source, text="Definir prioridade", command=self.edit_family_priority).grid(row=1, column=3)
 
-        settings = ttk.Frame(page, style="Card.TFrame", padding=16)
-        settings.pack(fill="x", pady=(0, 12))
+        settings = ttk.Frame(page, style="Card.TFrame", padding=10)
+        settings.pack(fill="x", pady=(0, 8))
         for column in range(3):
             settings.columnconfigure(column, weight=1)
-        ttk.Label(settings, text="2  Como planejar", style="Section.TLabel").grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 10))
+        ttk.Label(settings, text="2  Como planejar", style="Section.TLabel").grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 5))
         inputs = (
             ("Agentes por dia", self.agents, 1, 100, 1),
             ("Minutos por agente", self.shift_minutes, 1, 1440, 30),
@@ -112,19 +113,19 @@ class RoutingApp:
         for column, (label, variable, minimum, maximum, step) in enumerate(inputs):
             ttk.Label(settings, text=label, style="Card.TLabel").grid(row=1, column=column, sticky="w", padx=(0, 12))
             ttk.Spinbox(settings, from_=minimum, to=maximum, increment=step, textvariable=variable, width=13).grid(
-                row=2, column=column, sticky="ew", padx=(0, 12), pady=(5, 0),
+                row=2, column=column, sticky="ew", padx=(0, 12), pady=(3, 0),
             )
-        ttk.Button(settings, text="Ajustar prioridades", command=self.open_priorities).grid(row=3, column=0, sticky="w", pady=(13, 0))
+        ttk.Button(settings, text="Ajustar prioridades gerais", command=self.open_priorities).grid(row=3, column=0, sticky="w", pady=(6, 0))
 
         actions = ttk.Frame(page, style="App.TFrame")
-        actions.pack(fill="x", pady=(0, 12))
+        actions.pack(fill="x", pady=(0, 6))
         self.process_button = ttk.Button(actions, text="Gerar rotas", style="Accent.TButton", command=self.start_processing)
         self.process_button.pack(side="left")
         self.map_button = ttk.Button(actions, text="Abrir mapa das rotas", command=self.open_map, state=tk.DISABLED)
         self.map_button.pack(side="left", padx=10)
-        ttk.Label(page, textvariable=self.status, style="Intro.TLabel", wraplength=850).pack(anchor="w", pady=(0, 12))
+        ttk.Label(page, textvariable=self.status, style="Intro.TLabel", wraplength=850).pack(anchor="w", pady=(0, 6))
 
-        results = ttk.Frame(page, style="Card.TFrame", padding=16)
+        results = ttk.Frame(page, style="Card.TFrame", padding=10)
         results.pack(fill="both", expand=True)
         ttk.Label(results, text="Resultado", style="Section.TLabel").pack(anchor="w", pady=(0, 8))
         self.output = ScrolledText(results, wrap=tk.WORD, font=("DejaVu Sans Mono", 10),
@@ -193,6 +194,52 @@ class RoutingApp:
             self.csv_path.set(path)
             self.status.set(f"Selecionado: {Path(path).name}")
 
+    def edit_family_priority(self) -> None:
+        path = self.csv_path.get()
+        if not path:
+            messagebox.showinfo("Selecione as famílias", "Escolha um CSV ou Excel primeiro.")
+            return
+        try:
+            current = family_priorities(path)
+            if not current:
+                raise ValueError("O arquivo não tem famílias cadastradas.")
+        except (ValueError, OSError, KeyError) as error:
+            messagebox.showerror("Não foi possível abrir as famílias", str(error))
+            return
+        window = tk.Toplevel(self.root)
+        window.title("Prioridade de uma família")
+        window.geometry("440x300")
+        window.configure(background=BG)
+        window.transient(self.root)
+        window.grab_set()
+        body = ttk.Frame(window, style="App.TFrame", padding=20)
+        body.pack(fill="both", expand=True)
+        ttk.Label(body, text="Prioridade de uma família", style="Heading.TLabel").pack(anchor="w")
+        ttk.Label(body, text="A prioridade altera a ordem de escolha, sem mudar o risco calculado ou as regras de horário.",
+                  style="Intro.TLabel", wraplength=390).pack(anchor="w", pady=(6, 18))
+        ttk.Label(body, text="Número da família", style="Intro.TLabel").pack(anchor="w")
+        family_id = tk.StringVar(value=str(next(iter(current))))
+        ttk.Combobox(body, textvariable=family_id,
+                     values=[str(item) for item in sorted(current)]).pack(fill="x", pady=(3, 12))
+        ttk.Label(body, text="Prioridade", style="Intro.TLabel").pack(anchor="w")
+        priority = tk.StringVar(value=current[int(family_id.get())])
+        family_id.trace_add("write", lambda *_: priority.set(
+            current.get(int(family_id.get()), "normal") if family_id.get().isdigit() else "normal"
+        ))
+        ttk.Combobox(body, textvariable=priority, values=("baixa", "normal", "alta", "urgente"),
+                     state="readonly").pack(fill="x", pady=(3, 12))
+
+        def save() -> None:
+            try:
+                set_family_priority(path, int(family_id.get()), priority.get())
+            except (ValueError, OSError) as error:
+                messagebox.showerror("Não foi possível salvar", str(error), parent=window)
+                return
+            self.status.set(f"Prioridade da família {family_id.get()} definida como {priority.get()}.")
+            window.destroy()
+
+        ttk.Button(body, text="Salvar prioridade", style="Accent.TButton", command=save).pack(anchor="e")
+
     def add_family(self) -> None:
         path = self.csv_path.get()
         if not path or Path(path).suffix.lower() != ".csv":
@@ -230,6 +277,12 @@ class RoutingApp:
             variable = tk.StringVar(value="0" if key == "fixed_phase_weeks" else "")
             fields[key] = variable
             ttk.Entry(grid, textvariable=variable).grid(row=index, column=1, sticky="ew", padx=8, pady=3)
+        ttk.Label(grid, text="Prioridade escolhida", style="Card.TLabel").grid(row=len(labels), column=0, sticky="w", pady=3)
+        fields["manual_priority"] = tk.StringVar(value="normal")
+        ttk.Combobox(grid, textvariable=fields["manual_priority"],
+                     values=("baixa", "normal", "alta", "urgente"), state="readonly").grid(
+            row=len(labels), column=1, sticky="ew", padx=8, pady=3,
+        )
         ttk.Label(outer, text="Condições de saúde e do domicílio", style="Intro.TLabel").pack(anchor="w", pady=(8, 0))
         condition_labels = {
             "bedridden": "Pessoa acamada", "physical_disability": "Deficiência física",

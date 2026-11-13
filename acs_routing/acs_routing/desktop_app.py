@@ -237,7 +237,8 @@ def format_plan(
                 priority = RISK_LABELS.get(family.risk_class, family.risk_class)
                 lines.append(
                     f"    {position} - Família {family_id} "
-                    f"(prioridade {family.risk_class} — {priority})"
+                    f"(prioridade {family.risk_class} — {priority}; "
+                    f"escolha manual: {family.manual_priority})"
                 )
                 visited.add(family_id)
         lines.append("")
