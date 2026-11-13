@@ -7,6 +7,8 @@ import time
 import tkinter as tk
 import importlib.util
 import webbrowser
+import csv
+import tempfile
 from dataclasses import replace
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
@@ -21,10 +23,40 @@ from .desktop_app import (
 from .models import Family, WeekState
 from .config import DEFAULT_CONFIG
 from .state import save_state
+from .family_files import (
+    MANUAL_HEADERS, save_manual_family, spreadsheet_rows, update_spreadsheet_dates,
+)
+from .families_loader import load_families
 
 
 OSRM_URL = "https://router.project-osrm.org"
 OSRM_PROFILE = "driving"
+BG = "#f4f7f6"
+SURFACE = "#ffffff"
+INK = "#18332e"
+MUTED = "#526761"
+ACCENT = "#176b58"
+
+
+def _style(root: tk.Tk) -> None:
+    """Apply a small, consistent visual system using native ttk widgets."""
+    style = ttk.Style(root)
+    style.theme_use("clam")
+    root.configure(background=BG)
+    style.configure("App.TFrame", background=BG)
+    style.configure("Card.TFrame", background=SURFACE)
+    style.configure("Card.TLabel", background=SURFACE, foreground=INK, font=("TkDefaultFont", 10))
+    style.configure("Muted.TLabel", background=SURFACE, foreground=MUTED, font=("TkDefaultFont", 9))
+    style.configure("Heading.TLabel", background=BG, foreground=INK, font=("TkDefaultFont", 18, "bold"))
+    style.configure("Intro.TLabel", background=BG, foreground=MUTED, font=("TkDefaultFont", 10))
+    style.configure("Section.TLabel", background=SURFACE, foreground=INK, font=("TkDefaultFont", 11, "bold"))
+    style.configure("Accent.TButton", background=ACCENT, foreground="white", padding=(16, 10), font=("TkDefaultFont", 10, "bold"))
+    style.map("Accent.TButton", background=[("active", "#115341"), ("disabled", "#a5b9b3")])
+    style.configure("TButton", padding=(12, 7))
+    style.configure("TEntry", padding=6)
+    style.configure("TSpinbox", padding=5)
+    style.configure("Card.TCheckbutton", background=SURFACE, foreground=INK)
+    style.map("Card.TCheckbutton", background=[("active", SURFACE)])
 
 
 class RoutingApp:
@@ -33,8 +65,9 @@ class RoutingApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("Planejamento de visitas — ACS")
-        self.root.geometry("900x650")
-        self.root.minsize(680, 480)
+        self.root.geometry("960x760")
+        self.root.minsize(760, 650)
+        _style(root)
 
         self.csv_path = tk.StringVar()
         self.agents = tk.StringVar(value="1")
@@ -47,101 +80,80 @@ class RoutingApp:
                 "fixed_day_importance", "travel_importance",
             )
         }
-        self.status = tk.StringVar(value="Selecione um arquivo CSV para começar.")
+        self.status = tk.StringVar(value="Selecione um arquivo ou cadastre uma família para começar.")
         self.map_path: Path | None = None
         self._families: list[Family] | None = None
         self._state: WeekState | None = None
 
-        frame = ttk.Frame(root, padding=16)
-        frame.pack(fill=tk.BOTH, expand=True)
-        frame.columnconfigure(1, weight=1)
+        page = ttk.Frame(root, style="App.TFrame", padding=22)
+        page.pack(fill="both", expand=True)
+        ttk.Label(page, text="Planejamento de visitas", style="Heading.TLabel").pack(anchor="w")
+        ttk.Label(page, text="Organize as famílias e gere as rotas da semana.", style="Intro.TLabel").pack(anchor="w", pady=(2, 18))
 
-        ttk.Label(frame, text="Arquivo de famílias (CSV):").grid(
-            row=0, column=0, sticky="w", padx=(0, 8), pady=6
-        )
-        ttk.Entry(frame, textvariable=self.csv_path, state="readonly").grid(
-            row=0, column=1, sticky="ew", pady=6
-        )
-        ttk.Button(frame, text="Escolher CSV", command=self.choose_csv).grid(
-            row=0, column=2, padx=(8, 0), pady=6
-        )
+        source = ttk.Frame(page, style="Card.TFrame", padding=16)
+        source.pack(fill="x", pady=(0, 12))
+        source.columnconfigure(0, weight=1)
+        ttk.Label(source, text="1  Famílias", style="Section.TLabel").grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 8))
+        ttk.Label(source, text="Importe um CSV ou Excel, ou cadastre uma família.", style="Muted.TLabel").grid(row=1, column=0, columnspan=3, sticky="w", pady=(0, 9))
+        ttk.Entry(source, textvariable=self.csv_path, state="readonly").grid(row=2, column=0, sticky="ew", padx=(0, 8))
+        ttk.Button(source, text="Escolher arquivo", command=self.choose_csv).grid(row=2, column=1, padx=(0, 8))
+        ttk.Button(source, text="Cadastrar família", command=self.add_family).grid(row=2, column=2)
 
-        ttk.Label(frame, text="Agentes de saúde por dia:").grid(
-            row=1, column=0, sticky="w", padx=(0, 8), pady=6
+        settings = ttk.Frame(page, style="Card.TFrame", padding=16)
+        settings.pack(fill="x", pady=(0, 12))
+        for column in range(3):
+            settings.columnconfigure(column, weight=1)
+        ttk.Label(settings, text="2  Como planejar", style="Section.TLabel").grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 10))
+        inputs = (
+            ("Agentes por dia", self.agents, 1, 100, 1),
+            ("Minutos por agente", self.shift_minutes, 1, 1440, 30),
+            ("Semanas à frente", self.weeks_ahead, 0, 520, 1),
         )
-        ttk.Spinbox(frame, from_=1, to=100, textvariable=self.agents, width=8).grid(
-            row=1, column=1, sticky="w", pady=6
-        )
+        for column, (label, variable, minimum, maximum, step) in enumerate(inputs):
+            ttk.Label(settings, text=label, style="Card.TLabel").grid(row=1, column=column, sticky="w", padx=(0, 12))
+            ttk.Spinbox(settings, from_=minimum, to=maximum, increment=step, textvariable=variable, width=13).grid(
+                row=2, column=column, sticky="ew", padx=(0, 12), pady=(5, 0),
+            )
+        ttk.Button(settings, text="Ajustar prioridades", command=self.open_priorities).grid(row=3, column=0, sticky="w", pady=(13, 0))
 
-        ttk.Label(frame, text="Tempo ativo por agente (minutos):").grid(
-            row=2, column=0, sticky="w", padx=(0, 8), pady=6
-        )
-        ttk.Spinbox(
-            frame,
-            from_=1,
-            to=1440,
-            increment=30,
-            textvariable=self.shift_minutes,
-            width=8,
-        ).grid(row=2, column=1, sticky="w", pady=6)
+        actions = ttk.Frame(page, style="App.TFrame")
+        actions.pack(fill="x", pady=(0, 12))
+        self.process_button = ttk.Button(actions, text="Gerar rotas", style="Accent.TButton", command=self.start_processing)
+        self.process_button.pack(side="left")
+        self.map_button = ttk.Button(actions, text="Abrir mapa das rotas", command=self.open_map, state=tk.DISABLED)
+        self.map_button.pack(side="left", padx=10)
+        ttk.Label(page, textvariable=self.status, style="Intro.TLabel", wraplength=850).pack(anchor="w", pady=(0, 12))
 
-        ttk.Label(frame, text="Semanas para simulação (a partir de hoje):").grid(
-            row=3, column=0, sticky="w", padx=(0, 8), pady=6
-        )
-        ttk.Spinbox(
-            frame,
-            from_=0,
-            to=520,
-            textvariable=self.weeks_ahead,
-            width=8,
-        ).grid(row=3, column=1, sticky="w", pady=6)
-
-        self.process_button = ttk.Button(
-            frame,
-            text="Processar e gerar rotas",
-            command=self.start_processing,
-        )
-        self.process_button.grid(row=4, column=0, columnspan=3, sticky="ew", pady=10)
-
-        ttk.Button(
-            frame, text="Ajustar prioridades do planejamento",
-            command=self.open_priorities,
-        ).grid(row=5, column=0, columnspan=3, sticky="ew", pady=(0, 8))
-
-        self.map_button = ttk.Button(
-            frame,
-            text="Abrir mapa das rotas",
-            command=self.open_map,
-            state=tk.DISABLED,
-        )
-        self.map_button.grid(row=6, column=0, columnspan=3, sticky="ew", pady=(0, 10))
-
-        ttk.Label(frame, textvariable=self.status).grid(
-            row=7, column=0, columnspan=3, sticky="w", pady=(0, 8)
-        )
-        self.output = ScrolledText(frame, wrap=tk.WORD, font=("Consolas", 10))
-        self.output.grid(row=8, column=0, columnspan=3, sticky="nsew")
-        frame.rowconfigure(8, weight=1)
+        results = ttk.Frame(page, style="Card.TFrame", padding=16)
+        results.pack(fill="both", expand=True)
+        ttk.Label(results, text="Resultado", style="Section.TLabel").pack(anchor="w", pady=(0, 8))
+        self.output = ScrolledText(results, wrap=tk.WORD, font=("DejaVu Sans Mono", 10),
+                                   relief="flat", borderwidth=0, background="#f8faf9",
+                                   foreground=INK, padx=12, pady=10)
+        self.output.pack(fill="both", expand=True)
 
     def open_priorities(self) -> None:
         """Explain and adjust the weights used to choose visits."""
         window = tk.Toplevel(self.root)
         window.title("Prioridades do planejamento")
-        window.geometry("610x560")
+        window.geometry("650x610")
+        window.minsize(610, 570)
+        window.configure(background=BG)
         window.transient(self.root)
         window.grab_set()
-        body = ttk.Frame(window, padding=18)
+        body = ttk.Frame(window, style="App.TFrame", padding=20)
         body.pack(fill=tk.BOTH, expand=True)
         ttk.Label(
             body,
             text="O que deve pesar mais na escolha das visitas?",
-            font=("TkDefaultFont", 12, "bold"),
+            style="Heading.TLabel",
         ).pack(anchor="w")
         ttk.Label(
             body,
             text="Arraste para a esquerda para reduzir ou desligar; para a direita para aumentar.\n"
                  "O padrão fica no meio. Os limites de tempo e dias fixos continuam sendo respeitados.",
             wraplength=570,
+            style="Intro.TLabel",
         ).pack(anchor="w", pady=(5, 12))
         options = (
             ("risk_importance", "Risco da família", "Dá preferência a famílias com maior risco de saúde."),
@@ -151,39 +163,121 @@ class RoutingApp:
             ("travel_importance", "Deslocamento curto", "Favorece visitas próximas da posição atual do agente."),
         )
         for key, title, description in options:
-            section = ttk.Frame(body)
-            section.pack(fill="x", pady=5)
-            ttk.Label(section, text=title, font=("TkDefaultFont", 10, "bold")).pack(anchor="w")
-            ttk.Label(section, text=description, wraplength=570).pack(anchor="w")
-            row = ttk.Frame(section)
+            section = ttk.Frame(body, style="Card.TFrame", padding=(12, 6))
+            section.pack(fill="x", pady=3)
+            ttk.Label(section, text=title, style="Section.TLabel").pack(anchor="w")
+            ttk.Label(section, text=description, wraplength=570, style="Muted.TLabel").pack(anchor="w")
+            row = ttk.Frame(section, style="Card.TFrame")
             row.pack(fill="x")
-            ttk.Label(row, text="Desligado").pack(side="left")
+            ttk.Label(row, text="Desligado", style="Muted.TLabel").pack(side="left")
             tk.Scale(
                 row, from_=0, to=2, resolution=0.25, orient="horizontal",
-                variable=self.importance[key], showvalue=False,
+                variable=self.importance[key], showvalue=False, background=SURFACE,
+                highlightthickness=0, troughcolor="#d9e7e2", activebackground=ACCENT,
             ).pack(side="left", fill="x", expand=True)
-            ttk.Label(row, text="Mais importante").pack(side="left")
-        actions = ttk.Frame(body)
+            ttk.Label(row, text="Mais importante", style="Muted.TLabel").pack(side="left")
+        actions = ttk.Frame(body, style="App.TFrame")
         actions.pack(fill="x", pady=(12, 0))
         ttk.Button(
             actions, text="Restaurar padrão",
             command=lambda: [value.set(1.0) for value in self.importance.values()],
         ).pack(side="left")
-        ttk.Button(actions, text="Concluído", command=window.destroy).pack(side="right")
+        ttk.Button(actions, text="Concluído", style="Accent.TButton", command=window.destroy).pack(side="right")
 
     def choose_csv(self) -> None:
         path = filedialog.askopenfilename(
-            title="Selecione o CSV de famílias",
-            filetypes=[("Arquivos CSV", "*.csv"), ("Todos os arquivos", "*.*")],
+            title="Selecione as famílias",
+            filetypes=[("CSV ou Excel", "*.csv *.xlsx"), ("Todos os arquivos", "*.*")],
         )
         if path:
             self.csv_path.set(path)
             self.status.set(f"Selecionado: {Path(path).name}")
 
+    def add_family(self) -> None:
+        path = self.csv_path.get()
+        if not path or Path(path).suffix.lower() != ".csv":
+            path = filedialog.asksaveasfilename(
+                title="Escolha um CSV para guardar os cadastros",
+                defaultextension=".csv", filetypes=[("CSV", "*.csv")],
+            )
+            if not path:
+                return
+        window = tk.Toplevel(self.root)
+        window.title("Cadastrar família")
+        window.geometry("700x740")
+        window.minsize(650, 700)
+        window.configure(background=BG)
+        window.transient(self.root)
+        window.grab_set()
+        outer = ttk.Frame(window, style="App.TFrame", padding=20)
+        outer.pack(fill="both", expand=True)
+        ttk.Label(outer, text="Cadastrar família", style="Heading.TLabel").pack(anchor="w")
+        ttk.Label(outer, text="Preencha os dados básicos e marque as condições presentes no domicílio.", style="Intro.TLabel").pack(anchor="w", pady=(2, 12))
+        fields = {}
+        labels = (
+            ("id", "Número da família"), ("lat", "Latitude"), ("lon", "Longitude"),
+            ("people_per_room", "Pessoas por cômodo"),
+            ("last_visit_date", "Última visita (AAAA-MM-DD; opcional)"),
+            ("fixed_day", "Dia fixo (1=segunda a 5=sexta; opcional)"),
+            ("fixed_period_weeks", "Repetir a cada N semanas (se dia fixo)"),
+            ("fixed_phase_weeks", "Fase da semana (0 para semanal)"),
+        )
+        grid = ttk.Frame(outer, style="Card.TFrame", padding=14)
+        grid.pack(fill="x", pady=8)
+        grid.columnconfigure(1, weight=1)
+        for index, (key, label) in enumerate(labels):
+            ttk.Label(grid, text=label, style="Card.TLabel").grid(row=index, column=0, sticky="w", pady=3)
+            variable = tk.StringVar(value="0" if key == "fixed_phase_weeks" else "")
+            fields[key] = variable
+            ttk.Entry(grid, textvariable=variable).grid(row=index, column=1, sticky="ew", padx=8, pady=3)
+        ttk.Label(outer, text="Condições de saúde e do domicílio", style="Intro.TLabel").pack(anchor="w", pady=(8, 0))
+        condition_labels = {
+            "bedridden": "Pessoa acamada", "physical_disability": "Deficiência física",
+            "mental_disability": "Deficiência mental", "poor_sanitation": "Saneamento precário",
+            "severe_malnutrition": "Desnutrição grave", "drug_addiction": "Dependência de drogas",
+            "unemployment": "Desemprego", "illiteracy": "Analfabetismo",
+            "under_6_months": "Criança com menos de 6 meses",
+            "over_70_years": "Pessoa com mais de 70 anos",
+            "hypertension": "Hipertensão", "diabetes": "Diabetes",
+        }
+        checks = ttk.Frame(outer, style="Card.TFrame", padding=12)
+        checks.pack(fill="x", pady=8)
+        for index, (key, label) in enumerate(condition_labels.items()):
+            variable = tk.BooleanVar(value=False)
+            fields[key] = variable
+            ttk.Checkbutton(checks, text=label, variable=variable, style="Card.TCheckbutton").grid(
+                row=index // 2, column=index % 2, sticky="w", padx=8, pady=3,
+            )
+
+        def save() -> None:
+            row = {key: str(int(value.get())) if isinstance(value, tk.BooleanVar)
+                   else value.get().strip() for key, value in fields.items()}
+            if not row["fixed_day"]:
+                row["fixed_period_weeks"] = ""
+                row["fixed_phase_weeks"] = ""
+            elif not row["fixed_period_weeks"]:
+                row["fixed_period_weeks"] = "1"
+            try:
+                with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", newline="", encoding="utf-8") as temp:
+                    writer = csv.DictWriter(temp, fieldnames=MANUAL_HEADERS)
+                    writer.writeheader()
+                    writer.writerow(row)
+                    temp.flush()
+                    load_families(temp.name)
+                save_manual_family(path, row)
+            except (ValueError, OSError) as error:
+                messagebox.showerror("Revise o cadastro", str(error), parent=window)
+                return
+            self.csv_path.set(path)
+            self.status.set(f"Família {row['id']} cadastrada em {Path(path).name}.")
+            window.destroy()
+
+        ttk.Button(outer, text="Salvar família", style="Accent.TButton", command=save).pack(fill="x", pady=10)
+
     def start_processing(self) -> None:
         path = self.csv_path.get()
         if not path:
-            messagebox.showwarning("CSV obrigatório", "Selecione um arquivo CSV.")
+            messagebox.showwarning("Famílias obrigatórias", "Selecione um arquivo ou cadastre uma família.")
             return
         try:
             agents = int(self.agents.get())
@@ -224,13 +318,24 @@ class RoutingApp:
     ) -> None:
         try:
             solver_started_at = time.perf_counter()
-            families, state = process_csv(
-                path,
-                agents,
-                shift_minutes,
-                weeks_ahead=weeks_ahead,
-                config=replace(DEFAULT_CONFIG, **importance),
-            )
+            if Path(path).suffix.lower() == ".xlsx":
+                headers, rows = spreadsheet_rows(path)
+                with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", newline="", encoding="utf-8") as temp:
+                    writer = csv.DictWriter(temp, fieldnames=headers)
+                    writer.writeheader()
+                    writer.writerows(rows)
+                    temp.flush()
+                    families, state = process_csv(
+                        temp.name, agents, shift_minutes, weeks_ahead=weeks_ahead,
+                        config=replace(DEFAULT_CONFIG, **importance),
+                    )
+                update_spreadsheet_dates(path, state)
+            else:
+                families, state = process_csv(
+                    path, agents, shift_minutes, weeks_ahead=weeks_ahead,
+                    config=replace(DEFAULT_CONFIG, **importance),
+                )
+                update_csv_last_visit_dates(path, state)
             solver_seconds = time.perf_counter() - solver_started_at
             result = format_plan(
                 families,
@@ -238,7 +343,6 @@ class RoutingApp:
                 agents,
                 execution_seconds=solver_seconds,
             )
-            update_csv_last_visit_dates(path, state)
         except Exception as error:  # surfaced in the UI with the original message
             self.root.after(0, self._show_error, str(error))
             return

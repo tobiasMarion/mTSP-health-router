@@ -4,6 +4,13 @@ Weekly route planning for community health agent home visits using real family d
 
 ## Local desktop interface
 
+The desktop interface accepts CSV and Excel (`.xlsx`) files. Install the Excel
+dependency with `pip install -e ".[gui]"`. Use **Cadastrar família manualmente**
+to enter a household through a form; the app saves manual entries to a CSV
+chosen by the user. The form checks required fields before saving. Processing
+updates the last-visit dates in the selected CSV or Excel file, so keep a copy
+when you need the original data.
+
 Run the simple offline interface with:
 
 ```powershell
