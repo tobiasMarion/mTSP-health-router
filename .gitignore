@@ -1,0 +1,8 @@
+# Ambientes virtuais e arquivos gerados pelo Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Dados sintéticos gerados localmente
+/acs_routing/data/families_porto_alegre_synthetic.csv
