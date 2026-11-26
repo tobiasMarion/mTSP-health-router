@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Planejamento de Rotas{% endblock %} · ACS</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='web.css') }}">
+  {% block extra_head %}{% endblock %}
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <div class="brand"><span class="brand-mark" aria-hidden="true">✚</span><div><strong>SUS · Planejamento de Rotas para ACS</strong><small>UBS Partenon · Porto Alegre</small></div></div>
+      <nav aria-label="Navegação principal">
+        <a href="{{ url_for('dashboard') }}" {% if request.endpoint == 'dashboard' %}aria-current="page"{% endif %}>Planejamento da Semana</a>
+        <a href="{{ url_for('agent_plans') }}" {% if request.endpoint == 'agent_plans' %}aria-current="page"{% endif %}>Planos por Agente</a>
+        {% if request.endpoint == 'new_plan' %}<a href="{{ url_for('new_plan') }}" aria-current="page">Novo Planejamento</a>{% else %}<form method="post" action="{{ url_for('start_new_plan') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit">Novo Planejamento</button></form>{% endif %}
+        <a href="{{ url_for('help_page') }}" {% if request.endpoint == 'help_page' %}aria-current="page"{% endif %}>Ajuda e Diretrizes</a>
+        {% if has_password and session.get('authenticated') %}<form method="post" action="{{ url_for('logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit">Sair</button></form>{% endif %}
+      </nav>
+    </div>
+  </header>
+  <main class="page">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}<div class="messages" role="status">{% for category, message in messages %}<p class="message {{ category }}">{{ message }}</p>{% endfor %}</div>{% endif %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </main>
+  <footer class="footer">Planejamento de visitas domiciliares · UBS Partenon</footer>
+  <script src="{{ url_for('static', filename='web.js') }}" defer></script>
+  {% block extra_scripts %}{% endblock %}
+</body>
+</html>

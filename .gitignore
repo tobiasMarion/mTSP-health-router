@@ -7,3 +7,7 @@ __pycache__/
 # Dados sintéticos gerados localmente
 /acs_routing/data/families_porto_alegre_synthetic.csv
 .DS_Store
+
+# Dados locais da interface web
+/acs_routing/instance/
+/acs_routing/acs_routing/instance/
