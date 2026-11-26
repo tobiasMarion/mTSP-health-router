@@ -1,0 +1,6 @@
+{% extends 'base.html' %}
+{% block title %}Ajuda e Diretrizes{% endblock %}
+{% block content %}
+<h1>Ajuda e Diretrizes</h1>
+<div class="card prose"><h2>Como usar</h2><ol><li>Importe um CSV ou XLSX com as colunas usadas pelo planejador: <code>id</code>, <code>lat</code>, <code>lon</code>, as sentinelas clínicas e <code>people_per_room</code>.</li><li>Revise prioridades e ative os agentes disponíveis.</li><li>Escolha a data e o tempo em campo. O planejamento cobre a segunda a sexta daquela semana.</li><li>Consulte as rotas e registre cada visita somente depois de ela ocorrer.</li></ol><h2>Critérios</h2><p>O algoritmo considera risco familiar, atraso, dias fixos, tempo de atendimento e deslocamento. Nesta interface, o cálculo usa distância geográfica aproximada e velocidade urbana de carro de 30 km/h. Confira a viabilidade das rotas antes do uso operacional.</p><h2>Dados e acesso</h2><p>Os dados ficam no banco SQLite do servidor. Configure uma senha de acesso e HTTPS antes de disponibilizar a aplicação em rede com dados reais.</p></div>
+{% endblock %}

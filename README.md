@@ -1,12 +1,13 @@
 # ACS-ROUTING
 
-Ferramenta de linha de comando para o **planejamento semanal de visitas domiciliares** de agentes comunitários de saúde (ACS). A partir de uma UBS, o ACS-ROUTING monta rotas de segunda a sexta-feira priorizando famílias por **risco (Coelho-Savassi)**, periodicidade, atraso e restrições de dia fixo, usando **tempos reais de deslocamento a pé** obtidos via [OSRM](https://project-osrm.org/). O pacote também inclui uma [interface gráfica local](#interface-gráfica-local).
+Ferramenta para o **planejamento semanal de visitas domiciliares** de agentes comunitários de saúde (ACS). A CLI monta rotas de segunda a sexta-feira priorizando famílias por **risco (Coelho-Savassi)**, periodicidade, atraso e restrições de dia fixo, usando **tempos reais de deslocamento a pé** obtidos via [OSRM](https://project-osrm.org/). O pacote também inclui uma [interface web](#interface-web) e uma interface gráfica local.
 
 ## Sumário
 
 - [Visão geral](#visão-geral)
 - [Requisitos](#requisitos)
 - [Instalação](#instalação)
+- [Interface web](#interface-web)
 - [Uso](#uso)
 - [Gerar dados sintéticos](#gerar-dados-sintéticos)
 - [Interface gráfica local](#interface-gráfica-local)
@@ -50,6 +51,23 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -e ".[osrm]"
 ```
+
+## Interface web
+
+A versão web usa as três telas do protótipo como base visual. O navegador permite importar famílias em CSV/XLSX, cadastrar famílias com coordenadas, definir prioridades, ativar agentes, gerar o plano semanal, consultar as rotas, baixar CSV e registrar visitas realizadas. O algoritmo continua em Python no servidor; os computadores clientes precisam apenas de navegador.
+
+```bash
+cd acs_routing
+python3 -m venv .venv
+.venv/bin/pip install -e '.[web]'
+.venv/bin/python -m acs_routing.web
+```
+
+Abra `http://127.0.0.1:8000`. No Windows, use `python` e `.venv\Scripts\python` em lugar dos comandos Linux. O banco é criado em `acs_routing/instance/acs_web.sqlite3` por padrão; configure `ACS_WEB_DATABASE` para outro caminho persistente. Para servir em outro computador, execute com um servidor WSGI, por exemplo `waitress-serve --listen=127.0.0.1:8080 --call acs_routing.web:create_app`, atrás de um proxy HTTPS. Defina `ACS_WEB_PASSWORD` e uma `ACS_WEB_SECRET_KEY` longa e estável antes de disponibilizar dados reais em rede.
+
+O plano cobre **segunda a sexta** e usa a estimativa local de deslocamento de carro do aplicativo desktop (distância geográfica, 30 km/h). O modo OSRM da CLI continua separado. Nesta primeira versão web, o tempo em campo é igual para todos os agentes; microáreas são exibidas, mas ainda não restringem a atribuição de famílias. Gerar um plano **não** altera a data da última visita: essa data só muda quando a visita é registrada como realizada.
+
+No cadastro, busque o endereço e confira o ponto selecionado no mapa, ou escolha o ponto diretamente. A busca usa o Nominatim público por padrão, para dados sintéticos. Para usar uma instância própria, configure `ACS_GEOCODER_URL` com seu endereço `/search`, acessível pelo navegador e com CORS habilitado. O serviço público Nominatim proíbe o envio de informações pessoais ou confidenciais; use uma instância sob controle da instituição para dados reais. Na tela do plano, o mapa da semana e os mapas por dia consultam a geometria viária do OSRM, cujo endereço pode ser configurado em `ACS_MAP_OSRM_URL`; quando indisponível, exibem linhas retas. A consulta envia as coordenadas ao servidor configurado. Os mapas também são preparados para a impressão em PDF. Os tempos do planejamento continuam sendo estimativas em linha reta; os arquivos GPX contêm os pontos em ordem, sem geometria viária. A origem é o centro geográfico virtual das famílias. Planos criados antes do registro de coordenadas no histórico precisam ser gerados novamente para exibir mapas ou baixar GPX.
 
 ## Uso
 

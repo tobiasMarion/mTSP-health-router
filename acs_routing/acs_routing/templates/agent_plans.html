@@ -1,0 +1,39 @@
+{% extends 'base.html' %}
+{% block title %}Planos por Agente{% endblock %}
+{% block extra_head %}{% if has_coordinates %}<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">{% endif %}{% endblock %}
+{% block content %}
+<a class="back-link" href="{{ url_for('dashboard') }}">← Voltar ao Planejamento da Semana</a>
+<div class="page-title"><h1>Planejamento Individual dos Agentes Comunitários de Saúde</h1><p>Consulte as rotas, imprima as fichas e registre as visitas realizadas.</p></div>
+{% if plan %}
+<section class="card toolbar"><div><span class="eyebrow">Semana de {{ plan.monday }}</span><h2>{{ plan.agents|length }} agentes · {{ plan.report.families_visited_per_day | sum }} visitas programadas</h2></div><div class="toolbar-actions"><a class="button ghost" href="{{ url_for('route_map', plan_id=plan_row.id) }}">Ver mapa</a><a class="button ghost" href="{{ url_for('download_plan', plan_id=plan_row.id) }}">Baixar CSV</a><button class="button secondary" type="button" id="print-plans">Imprimir fichas / salvar PDF</button></div><p id="print-status" role="status"></p></section>
+{% if has_coordinates %}<section class="card weekly-map"><h2>Mapa da semana</h2><p>Rotas de todos os agentes. As cores identificam os dias; o ponto de partida é o centro aproximado das famílias.</p><div id="weekly-plan-map" class="plan-map" aria-label="Mapa semanal das rotas"></div><p class="map-status" role="status"></p></section>{% else %}<p>Este planejamento antigo não possui coordenadas registradas. Gere um novo plano para visualizar os mapas.</p>{% endif %}
+<label for="agent-search">Localizar agente por nome ou microárea</label><input id="agent-search" class="search" type="search" placeholder="Buscar agente..." data-filter="agent-card">
+<div class="plans-list">
+  {% for agent in plan.agents %}
+  {% set agent_number = loop.index %}
+  <section class="card agent-plan" data-agent-card="{{ agent.name }} {{ agent.microarea }}">
+    <div class="agent-plan-header"><div><small>ACS {{ agent_number }} · {{ agent.microarea or 'Microárea não informada' }}</small><h2>{{ agent.name }}</h2></div><span class="chip">{{ weekdays|length }} dias úteis</span></div>
+    <div class="route-grid">
+      {% for route in plan.routes if route.agent == agent_number %}
+      <details class="route-day"><summary class="route-heading"><strong>{{ weekdays[route.day - 1] }} <small>{{ route.visit_date }}</small></strong><span>{{ route.total_time|round(0)|int }} min · {{ route.sequence|length - 2 }} visitas</span></summary>
+        {% if route.sequence|length > 2 %}<a href="{{ url_for('download_gpx', plan_id=plan_row.id, agent=agent_number, day=route.day) }}">Baixar GPX</a>{% endif %}
+        {% if has_coordinates and route.sequence|length > 2 %}<div class="plan-map daily-map" data-agent="{{ agent_number }}" data-day="{{ route.day }}" aria-label="Mapa da rota de {{ agent.name }} em {{ weekdays[route.day - 1] }}"></div><p class="map-status" role="status"></p>{% endif %}
+        {% if route.sequence|length > 2 %}<ol class="visit-list">
+          {% for family_id in route.sequence[1:-1] %}{% set family = families_by_id[family_id] %}
+          <li><div class="visit-details"><strong>{{ family.name }}</strong><span>{{ family.address }} · {{ family.microarea }}</span><small>Risco {{ family.risk }} · prioridade {{ family.priority }} · família {{ family.id }}</small></div>
+          {% if family_id in completed %}<span class="chip complete">Visita concluída · {{ completed[family_id] }}</span>
+          {% else %}<form class="complete-form" method="post" action="{{ url_for('complete_visit', plan_id=plan_row.id, family_id=family_id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label class="sr-only" for="visit-date-{{ route.day }}-{{ agent_number }}-{{ family_id }}">Data da visita à família {{ family_id }}</label><input id="visit-date-{{ route.day }}-{{ agent_number }}-{{ family_id }}" type="date" name="visit_date" value="{{ route.visit_date }}" required><button class="button small" type="submit">Concluir visita</button></form>{% endif %}</li>
+          {% endfor %}
+        </ol>{% else %}<p class="empty-inline">Nenhuma visita programada.</p>{% endif %}
+      </details>
+      {% endfor %}
+    </div>
+  </section>
+  {% endfor %}
+</div>
+<section class="card summary"><h2>Distribuição das visitas</h2><div class="day-grid">{% for day in weekdays %}<div><strong>{{ day }}</strong><span>{{ plan.report.families_visited_per_day[loop.index0] }} visitas</span></div>{% endfor %}</div></section>
+{% else %}<section class="card empty"><h2>Nenhum plano gerado</h2><p>Cadastre famílias e agentes para montar a primeira semana.</p><form method="post" action="{{ url_for('start_new_plan') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="button primary" type="submit">Criar planejamento</button></form></section>{% endif %}
+{% if history %}<section class="history"><h2>Planos anteriores</h2><div class="history-links">{% for item in history %}<a href="{{ url_for('agent_plans', plan_id=item.id) }}" {% if plan_row and item.id == plan_row.id %}aria-current="page"{% endif %}>Semana {{ item.monday }} · #{{ item.id }}</a>{% endfor %}</div></section>{% endif %}
+{% if has_coordinates %}<script id="plan-data" type="application/json">{{ plan | tojson }}</script><div id="map-config" data-osrm-url="{{ osrm_url }}" hidden></div>{% endif %}
+{% endblock %}
+{% block extra_scripts %}{% if has_coordinates %}<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script src="{{ url_for('static', filename='plan-maps.js') }}"></script>{% else %}<script>document.querySelector('#print-plans')?.addEventListener('click', () => window.print());</script>{% endif %}{% endblock %}

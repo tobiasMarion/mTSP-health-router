@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+{% block title %}Planejamento da Semana{% endblock %}
+{% block content %}
+<section class="hero card">
+  <div><span class="eyebrow">ESF Partenon · Coordenação de ACS</span><h1>Planejamento da Semana</h1>
+    {% if plan %}<p>Semana iniciada em <strong>{{ plan.monday }}</strong> · plano gerado em {{ plan_row.created_at }}</p>
+    {% else %}<p>Importe as famílias e gere o primeiro planejamento semanal.</p>{% endif %}
+  </div>
+  {% if plan %}<a class="button ghost" href="{{ url_for('download_plan', plan_id=plan_row.id) }}">Baixar resumo CSV</a>{% endif %}
+</section>
+<section class="metrics" aria-label="Indicadores da semana">
+  <article class="card metric"><span>Recursos Humanos</span><strong>{{ agent_count }} ACS</strong><small>Agentes ativos</small></article>
+  <article class="card metric"><span>Famílias Cadastradas</span><strong>{{ family_count }}</strong><small>{% if plan %}{{ plan.report.families_visited_per_day | sum }} visitas programadas{% else %}Aguardando planejamento{% endif %}</small></article>
+  <article class="card metric"><span>Visitas Realizadas</span><strong>{{ completed }}</strong><small>Registradas no plano atual</small></article>
+</section>
+<section class="section-heading"><h2>Planejar</h2><p>Escolha uma ação para organizar as visitas da semana.</p></section>
+<div class="action-grid">
+  <article class="card action-card"><span class="eyebrow">Configuração operacional</span><h3>Criar ou Refazer Planejamento da Semana</h3><p>Importe os cadastros, ajuste prioridades e selecione os agentes disponíveis.</p><form method="post" action="{{ url_for('start_new_plan') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="button primary" type="submit">Iniciar novo planejamento</button></form></article>
+  <article class="card action-card"><span class="eyebrow">Escala vigente</span><h3>Consultar Planejamento Existente</h3><p>Veja as visitas por agente e dia, registre visitas realizadas e baixe a escala.</p><a class="button secondary" href="{{ url_for('agent_plans') }}">Abrir planos por agente</a></article>
+</div>
+{% if plan %}<section class="card summary"><h2>Panorama da semana</h2><div class="day-grid">{% for day in weekdays %}<div><strong>{{ day }}</strong><span>{{ plan.report.families_visited_per_day[loop.index0] }} visitas</span></div>{% endfor %}</div></section>{% endif %}
+{% endblock %}

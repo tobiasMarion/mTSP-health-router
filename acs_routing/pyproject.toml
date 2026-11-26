@@ -12,6 +12,10 @@ dependencies = ["numpy>=1.24"]
 [project.optional-dependencies]
 osrm = ["requests>=2.31"]
 gui = ["openpyxl>=3.1"]
+web = ["Flask>=3.1", "openpyxl>=3.1", "waitress>=3.0"]
 
 [tool.setuptools.packages.find]
 include = ["acs_routing*"]
+
+[tool.setuptools.package-data]
+acs_routing = ["templates/*.html", "static/*.css", "static/*.js"]

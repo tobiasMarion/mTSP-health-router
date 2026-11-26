@@ -1,0 +1,12 @@
+{% extends 'base.html' %}
+{% block title %}Mapa das rotas{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">{% endblock %}
+{% block content %}
+<a class="back-link" href="{{ url_for('agent_plans', plan_id=plan_row.id) }}">← Voltar aos planos por agente</a>
+<h1>Mapa das rotas</h1>
+{% if plan %}<p>As linhas ligam as paradas em linha reta; não representam ruas. O ponto de partida é o centro aproximado das famílias.</p>
+<div class="card"><div class="map-controls"><div><label for="map-agent">Agente</label><select id="map-agent"><option value="">Todos</option>{% for agent in plan.agents %}<option value="{{ loop.index }}">{{ agent.name }}</option>{% endfor %}</select></div><div><label for="map-day">Dia</label><select id="map-day"><option value="">Todos</option>{% for day in weekdays %}<option value="{{ loop.index }}">{{ day }}</option>{% endfor %}</select></div></div><div id="routes-map" class="routes-map"></div></div>
+<script id="plan-data" type="application/json">{{ plan | tojson }}</script>
+{% else %}<div class="card"><p>Este planejamento foi criado antes do registro de coordenadas no histórico. Gere um novo plano para visualizar o mapa.</p></div>{% endif %}
+{% endblock %}
+{% block extra_scripts %}{% if plan %}<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script src="{{ url_for('static', filename='routes-map.js') }}"></script>{% endif %}{% endblock %}

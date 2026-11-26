@@ -1,0 +1,62 @@
+{% extends 'base.html' %}
+{% block extra_head %}<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">{% endblock %}
+{% block extra_scripts %}<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script src="{{ url_for('static', filename='location.js') }}"></script>{% endblock %}
+{% block title %}Novo Planejamento{% endblock %}
+{% block content %}
+<a class="back-link" href="{{ url_for('dashboard') }}">← Voltar ao Planejamento da Semana</a>
+<div class="page-title"><h1>Criar ou Refazer Planejamento da Semana</h1><p>UBS Partenon · Planejamento de segunda a sexta</p></div>
+
+<section class="card step">
+  <div class="step-heading"><span class="step-icon">▣</span><div><small>PASSO 1 DE 3</small><h2>Entrada de Dados das Famílias</h2></div></div>
+  <p>Importe um cadastro existente ou adicione uma família manualmente. Para calcular as rotas, cada família precisa de latitude e longitude.</p>
+  <div class="two-cols">
+    <form class="inset" method="post" action="{{ url_for('import_families') }}" enctype="multipart/form-data">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <h3>Importar CSV ou Excel</h3><p>O arquivo substitui o cadastro de famílias atual após ser validado.</p>
+      <label for="family-file">Arquivo .csv ou .xlsx</label><input id="family-file" type="file" name="file" accept=".csv,.xlsx" required>
+      <button class="button secondary" type="submit">Importar famílias</button>
+    </form>
+    <form class="inset" method="post" action="{{ url_for('add_family') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <h3>Cadastro rápido de família</h3>
+      <div class="form-grid">
+        <div><label for="family-name">Nome do responsável</label><input id="family-name" name="name" required></div>
+        <div><label for="family-address">Endereço</label><input id="family-address" name="address" required></div>
+        <div><label for="family-microarea">Microárea</label><input id="family-microarea" name="microarea" placeholder="Ex.: MA-01"></div>
+        <div><label for="family-last">Última visita</label><input id="family-last" name="last_visit_date" type="date"></div>
+        <input id="family-lat" name="lat" type="hidden">
+        <input id="family-lon" name="lon" type="hidden">
+        <div><label for="family-density">Pessoas por cômodo</label><input id="family-density" name="people_per_room" type="number" step="0.1" min="0" value="0"></div>
+      </div>
+      <div class="location-picker" data-geocoder-url="{{ geocoder_url }}">
+        <p>Localize o endereço e confirme o ponto no mapa. É possível ajustar clicando no mapa.</p>
+        <div class="inline-form"><button class="button ghost" type="button" id="geocode-button" {% if not geocoder_url %}disabled{% endif %}>Buscar endereço</button><span id="geocode-status" role="status">{% if not geocoder_url %}Configure ACS_GEOCODER_URL para ativar a busca por endereço.{% endif %}</span></div>
+        <div id="geocode-results"></div><div id="location-map" class="location-map" aria-label="Mapa para selecionar a localização"></div>
+      </div>
+      <fieldset class="sentinels"><legend>Condições de saúde e vulnerabilidade</legend><div class="checkbox-grid">{% for key, label in sentinels.items() %}<label class="check"><input type="checkbox" name="{{ key }}" value="1">{{ label }}</label>{% endfor %}</div></fieldset>
+      <button class="button secondary" type="submit">Adicionar família à lista</button>
+    </form>
+  </div>
+  <p class="count">{{ families|length }} famílias cadastradas</p>
+</section>
+
+<section class="card step">
+  <div class="step-heading"><span class="step-icon yellow">!</span><div><small>PASSO 2 DE 3</small><h2>Definição de Urgência e Prioridade</h2></div></div>
+  <p>O risco calculado continua separado da prioridade manual. Ajustes de prioridade entram no próximo cálculo.</p>
+  {% if families %}
+  <label for="family-search">Buscar família por nome, endereço ou microárea</label><input id="family-search" class="search" type="search" placeholder="Buscar família..." data-filter="family-row">
+  <div class="table-scroll family-table" tabindex="0" aria-label="Lista de famílias"><table><thead><tr><th>Família / Responsável</th><th>Endereço</th><th>Microárea</th><th>Risco</th><th>Prioridade manual</th></tr></thead><tbody>
+    {% for family in families %}<tr data-family-row="{{ family.name }} {{ family.address }} {{ family.microarea }} {{ family.id }}"><td><strong>{{ family.name }}</strong><small>ID {{ family.id }}</small></td><td>{{ family.address }}</td><td>{{ family.microarea }}</td><td><span class="chip">{{ family.risk }}</span></td><td><form class="inline-form" method="post" action="{{ url_for('set_priority', family_id=family.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label class="sr-only" for="priority-{{ family.id }}">Prioridade da família {{ family.id }}</label><select id="priority-{{ family.id }}" name="priority"><option value="baixa" {% if family.priority == 'baixa' %}selected{% endif %}>Baixa</option><option value="normal" {% if family.priority == 'normal' %}selected{% endif %}>Normal</option><option value="alta" {% if family.priority == 'alta' %}selected{% endif %}>Alta</option><option value="urgente" {% if family.priority == 'urgente' %}selected{% endif %}>Urgente</option></select><button class="button small" type="submit">Salvar</button></form></td></tr>{% endfor %}
+  </tbody></table></div>
+  {% else %}<div class="empty">Nenhuma família cadastrada. Importe um arquivo ou use o cadastro rápido.</div>{% endif %}
+</section>
+
+<section class="card step">
+  <div class="step-heading"><span class="step-icon green">♙</span><div><small>PASSO 3 DE 3</small><h2>Agentes Disponíveis</h2></div></div>
+  <p>Ative os profissionais que participarão do plano. O tempo em campo é igual para todos nesta versão.</p>
+  <div class="agent-grid">{% for agent in agents %}<article class="agent-card {% if not agent.active %}inactive{% endif %}"><div><small>ACS · {{ agent.microarea or 'Microárea não informada' }}</small><h3>{{ agent.name }}</h3></div><form method="post" action="{{ url_for('toggle_agent', agent_id=agent.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="button small {% if agent.active %}ghost{% else %}secondary{% endif %}" type="submit">{% if agent.active %}Ativo · Desativar{% else %}Inativo · Ativar{% endif %}</button></form></article>{% endfor %}</div>
+  <form class="add-agent" method="post" action="{{ url_for('add_agent') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><div><label for="agent-name">Nome do agente</label><input id="agent-name" name="name" required></div><div><label for="agent-microarea">Microárea principal</label><input id="agent-microarea" name="microarea" placeholder="Ex.: MA-01"></div><button class="button secondary" type="submit">Adicionar agente</button></form>
+</section>
+
+<form class="plan-action" method="post" action="{{ url_for('generate_plan') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><div><label for="planning-date">Data da semana</label><input id="planning-date" name="planning_date" type="date" value="{{ today }}" required></div><div><label for="shift-minutes">Minutos em campo por agente/dia</label><input id="shift-minutes" name="shift_minutes" type="number" min="1" max="1440" value="360" required></div><button class="button success" type="submit">Gerar planejamento da semana</button></form>
+{% endblock %}
