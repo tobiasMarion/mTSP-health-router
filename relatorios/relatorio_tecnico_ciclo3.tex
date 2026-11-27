@@ -1,0 +1,434 @@
+\documentclass[11pt,a4paper]{article}
+
+% --- Pacotes Fundamentais ---
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[brazil]{babel}
+\usepackage{lmodern}
+\usepackage[top=2.5cm, bottom=2.5cm, left=2.5cm, right=2.5cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{fancyhdr}
+\usepackage[most]{tcolorbox}
+\usepackage{hyperref}
+\usepackage{microtype}
+\emergencystretch=3em
+
+% --- Configurações de Cores e Links ---
+\definecolor{primary}{RGB}{16, 54, 98}      % Azul institucional
+\definecolor{secondary}{RGB}{41, 128, 185}  % Azul médio
+\definecolor{codebg}{RGB}{248, 249, 250}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=primary,
+    citecolor=secondary,
+    urlcolor=secondary
+}
+
+% --- Configurações para Código-Fonte (Listings) ---
+\lstset{
+    backgroundcolor=\color{codebg},
+    basicstyle=\ttfamily\footnotesize,
+    breaklines=true,
+    frame=single,
+    rulecolor=\color{black!20},
+    numbers=left,
+    numberstyle=\tiny\color{black!40},
+    keywordstyle=\color{primary}\bfseries,
+    commentstyle=\color{green!50!black}\itshape,
+    stringstyle=\color{orange!80!black},
+    literate={á}{{\'a}}1 {ã}{{\~a}}1 {ç}{{\c{c}}}1 {é}{{\'e}}1 {í}{{\'i}}1 {ó}{{\'o}}1 {õ}{{\~o}}1 {ú}{{\'u}}1 {ê}{{\^e}}1
+}
+
+% --- Cabeçalho e Rodapé ---
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{\footnotesize Projeto em Ciência e Inovação -- 2026/2}
+\rhead{\footnotesize Relatório Técnico - Ciclo 3}
+\cfoot{\thepage}
+
+% ==============================================================================
+% DADOS DO TRABALHO
+% ==============================================================================
+\title{
+    \vspace{-1.0cm}
+    \textbf{\Large ACS-ROUTING: planejamento semanal de visitas domiciliares\\ com prioridade ajustável pela equipe de saúde}\\[0.3cm]
+    \large Relatório Técnico de Pesquisa e Desenvolvimento (P\&D)
+}
+
+\author{
+    \textbf{Eduardo Altmann de Bem} (Cartão: 594993) -- \texttt{eduardo.altmann@inf.ufrgs.br}\\
+    \textbf{Izadora Candotti de Oliveira} (Cartão: 599269) -- \texttt{icoliveira@inf.ufrgs.br}\\
+    \textbf{Tobias Cadoná Marion} (Cartão: 00590278) -- \texttt{tobias.marion@inf.ufrgs.br}\\[0.3cm]
+    \normalsize Instituto de Informática -- Universidade Federal do Rio Grande do Sul (UFRGS)\\
+    \normalsize Disciplina: Projeto em Ciência e Inovação (2026/2)\\
+    \small Repositório do Projeto: \url{https://github.com/tobiasMarion/mTSP-health-router}
+}
+
+\date{Porto Alegre, \today}
+
+% ==============================================================================
+% INÍCIO DO DOCUMENTO
+% ==============================================================================
+\begin{document}
+
+\maketitle
+\thispagestyle{fancy}
+
+\begin{abstract}
+\noindent
+\textbf{Resumo.} Agentes Comunitários de Saúde precisam decidir toda semana quais famílias visitar, em que dia e em que ordem, com turno limitado. Neste ciclo, nosso grupo herdou o ACS-ROUTING, que classifica as famílias pela escala de Coelho-Savassi e monta rotas semanais com GRASP e busca local. A partir do retorno de profissionais de saúde, incorporamos cinco controles de importância ajustáveis, uma prioridade manual por família, cadastro via Excel e formulário, e uma interface web com banco SQLite, histórico de planos e registro de visitas. Formulamos três hipóteses: a prioridade \emph{urgente} garante a inclusão da família no plano; os controles têm efeito monotônico e preservam o comportamento anterior; e o planejamento responde em menos de 10~s para 900 famílias. Em bases sintéticas de 100 a 900 famílias, a configuração padrão reproduziu exatamente os planos do ciclo~2. Das famílias marcadas como urgentes, 96,7\% entraram no plano, ao custo de reduzir a cobertura de alto risco de 64,4\% para 55,3\%. Os controles de risco, dia ideal e deslocamento moveram suas métricas na direção esperada. A terceira hipótese foi refutada: o caso de 900 famílias levou 28,2~s. Mostramos, porém, que as 50 iterações do GRASP geram sempre a mesma solução, e uma única iteração produz rotas idênticas em 0,86~s. Discutimos ainda o tratamento de dados sensíveis de saúde sob a LGPD e o caminho para um piloto em uma UBS.
+\\[0.3cm]
+\textbf{Palavras-chave:} Atenção Primária à Saúde; Agentes Comunitários de Saúde; Roteamento de Veículos; Problema de Orientação com Equipes; GRASP; Escala de Coelho-Savassi; Interface Web.
+\end{abstract}
+
+\vspace{0.3cm}
+\hrule
+\vspace{0.4cm}
+
+% ------------------------------------------------------------------------------
+\section{Contexto e Definição do Problema}
+
+Na Estratégia Saúde da Família, cada Agente Comunitário de Saúde (ACS) acompanha periodicamente as famílias de sua microárea por meio de visitas domiciliares. Uma equipe atende, tipicamente, de 700 a 900 famílias~\cite{coelho2004}, e o turno disponível para visitas é limitado. Toda semana a equipe precisa decidir \emph{quais} famílias visitar, \emph{em que dia} e \emph{em que ordem}. Na prática essa agenda é montada à mão, combinando de memória o risco de cada família, o tempo desde a última visita e o deslocamento no território. O critério muda conforme quem monta a agenda, e famílias de maior vulnerabilidade podem ficar para depois.
+
+\paragraph{Histórico do projeto e escopo deste ciclo.} A disciplina troca os grupos entre ciclos. No ciclo~2, outra equipe desenvolveu o ACS-ROUTING, uma ferramenta em Python que classifica as famílias pela Escala de Risco Familiar de Coelho-Savassi~\cite{coelho2004}, calcula uma recompensa por família e dia e monta as rotas da semana com uma meta-heurística GRASP seguida de busca local. No ciclo~3, nosso grupo herdou esse código e o apresentou a profissionais de saúde (apresentações de 05/11 e 12/11/2026). O retorno deles definiu as quatro modificações deste ciclo:
+\begin{enumerate}
+    \item \textbf{Critérios ajustáveis pelo usuário:} controles para reduzir, aumentar ou desligar a influência do risco clínico, do atraso, do dia ideal, das visitas com dia marcado e do deslocamento;
+    \item \textbf{Prioridade manual por família} (\emph{baixa}, \emph{normal}, \emph{alta}, \emph{urgente}), para casos que a escala de risco não captura, como uma alta hospitalar recente ou uma demanda trazida pelo próprio agente;
+    \item \textbf{Novas formas de cadastro:} planilha Excel (\texttt{.xlsx}) e formulário manual, além do CSV;
+    \item \textbf{Interface web} com banco de dados persistente, cadastro de agentes, histórico de planos, registro de visitas realizadas, mapas, exportação CSV/GPX e controle de acesso.
+\end{enumerate}
+
+\paragraph{Base de dados.} Não houve acesso a dados reais de uma Unidade Básica de Saúde (UBS). Todos os experimentos usam as bases \emph{sintéticas} geradas pelo grupo do ciclo~2 (\nolinkurl{acs_routing/data/dataset{100,300,600,900}.csv}), com famílias posicionadas aleatoriamente em uma região de Porto Alegre. Cada registro traz identificador, coordenadas (\texttt{lat}, \texttt{lon}), as 12 sentinelas binárias da Ficha~A do SIAB usadas pela escala de Coelho-Savassi, a densidade domiciliar (moradores por cômodo), a data da última visita e, opcionalmente, dia fixo, periodicidade e fase da visita. As bases têm 100, 300, 600 e 900 famílias, das quais 17, 44, 69 e 128 têm dia fixo. As últimas visitas estão entre 08/09/2026 e 08/10/2026. Como discutido na Seção~\ref{sec:limitacoes}, os arquivos versionados tiveram suas datas sobrescritas pelo uso da interface. Por isso usamos as versões originais do ciclo~2 (\emph{commit} \texttt{9e2076f}).
+
+\subsection{Formulação do Problema Computacional}
+
+O problema é uma variante semanal do \emph{Team Orienteering Problem} (TOP) com janelas de prioridade, próxima dos problemas de roteamento e agendamento em atenção domiciliar (\emph{Home Health Care Routing and Scheduling})~\cite{cinar2021,mankowska2014}.
+
+\begin{itemize}
+    \item \textbf{Entradas:} um conjunto $F$ de $n$ famílias, cada uma com posição geográfica, classe de risco $c_f \in \{R0,\dots,R3\}$, data da última visita, prioridade manual $p_f$ e restrição opcional de dia fixo; o número $m$ de agentes por dia; o turno $T$ (minutos); a semana de planejamento $D=\{1,\dots,5\}$; uma matriz de tempos de deslocamento $t_{ij}$ entre o ponto de partida e todas as famílias; e os cinco pesos de importância $\lambda_{\text{risco}}, \lambda_{\text{atraso}}, \lambda_{\text{dia}}, \lambda_{\text{fixo}}, \lambda_{\text{desl}} \in [0,2]$.
+    \item \textbf{Saída:} $5m$ rotas (uma por par dia/agente), cada uma começando e terminando no ponto de partida, com a sequência ordenada de famílias visitadas, seguidas de um relatório operacional.
+    \item \textbf{Objetivo:} maximizar $\sum_{d \in D} \sum_{f \in S_d} r_{f,d}$, em que $S_d$ é o conjunto de famílias visitadas no dia $d$ e $r_{f,d}$ é a recompensa de visitar $f$ no dia $d$.
+    \item \textbf{Restrições rígidas:} (i)~cada família é visitada no máximo uma vez na semana; (ii)~a duração de cada rota (deslocamentos mais tempo de atendimento $s_{c_f}$ de 10, 15, 20 ou 30 minutos para $R0$--$R3$) não excede $T$; (iii)~famílias com dia fixo ativo na semana só podem ser visitadas nesse dia.
+\end{itemize}
+
+A recompensa, já incorporando as modificações deste ciclo, é
+\begin{equation}
+r_{f,d} =
+\begin{cases}
+A_{\text{fix}} \cdot \lambda_{\text{fixo}} \cdot w_f & \text{se } f \text{ tem dia fixo ativo e } d = d^{\text{fixo}}_f,\\
+0 & \text{se } f \text{ tem dia fixo ativo e } d \neq d^{\text{fixo}}_f,\\
+A_{\text{flex}} \cdot w_f \cdot b_f \cdot g(d)^{\lambda_{\text{dia}}} & \text{caso contrário,}
+\end{cases}
+\qquad
+w_f = \rho_{c_f}^{\,\lambda_{\text{risco}}} \cdot \pi_{p_f},
+\label{eq:recompensa}
+\end{equation}
+em que $\rho = (1,2,4,8)$ é o peso por classe de risco, $\pi = (0{,}5;\,1;\,2;\,4)$ é o multiplicador da prioridade manual (baixa, normal, alta, urgente), $b_f = 1 + \lambda_{\text{atraso}}\,(\min(2{,}5;\; 1 + 0{,}05\,\delta_f) - 1)$ é o bônus pelos $\delta_f$ dias de atraso e $g(d)$ é uma gaussiana unilateral que vale~1 a partir do dia ideal e decai antes dele ($\sigma = 1$). Recompensas abaixo de 1\% do máximo da família são zeradas. Com todos os $\lambda = 1$ e prioridade \emph{normal}, a expressão se reduz exatamente à recompensa do ciclo~2. Na construção, cada candidato é avaliado pela razão $r_{f,d} / (\lambda_{\text{desl}}\, t_{ij} + s_{c_f})$.
+
+% ------------------------------------------------------------------------------
+\section{Formulação das Hipóteses de Solução}
+
+As hipóteses do ciclo~2 tratavam da viabilidade do GRASP em si. As deste ciclo tratam das modificações pedidas pelos profissionais. Elas foram formuladas antes dos experimentos da Seção~\ref{sec:resultados}.
+
+\subsection{Hipóteses Formuladas}
+\begin{itemize}
+    \item \textbf{Hipótese Principal ($H_1$) -- prioridade manual efetiva:} marcar uma família como \emph{urgente} faz com que ela seja incluída no plano da semana em pelo menos 90\% dos casos, mesmo no cenário de maior pressão de demanda (900 famílias, 4 agentes, turno de 4~h), sem violar nenhuma restrição rígida.
+    \item \textbf{Hipótese Secundária ($H_2$) -- controles previsíveis e compatíveis:} (a)~com todos os controles na posição padrão, o plano gerado é idêntico ao do ciclo~2; (b)~os controles têm efeito monotônico na direção anunciada pela interface: aumentar $\lambda_{\text{risco}}$ não reduz a cobertura de famílias $R3$, aumentar $\lambda_{\text{desl}}$ reduz o tempo médio de deslocamento por visita e aumentar $\lambda_{\text{dia}}$ não reduz o percentual de visitas no dia ideal.
+    \item \textbf{Hipótese Terciária ($H_3$) -- viabilidade operacional:} o planejamento no modo usado pela interface web e pela GUI responde em menos de 10~s para 900 famílias e 4 agentes em um computador pessoal, o que permite refazer o plano de forma interativa.
+\end{itemize}
+
+\subsection{Métricas de Sucesso}
+\begin{itemize}
+    \item \textbf{$H_1$:} fração das famílias marcadas que entra no plano (meta $\geq 90\%$), contagem de violações de restrições rígidas (meta: zero) e efeito colateral sobre a cobertura de $R3$.
+    \item \textbf{$H_2$:} igualdade exata das rotas (dia, agente e sequência) entre ciclo~2 e ciclo~3; sinal da variação de cobertura $R3$, de minutos de deslocamento por visita e do percentual no dia ideal ao variar cada $\lambda \in \{0;\,0{,}5;\,1;\,1{,}5;\,2\}$.
+    \item \textbf{$H_3$:} tempo de parede de ponta a ponta (leitura do CSV até o plano final), média e desvio-padrão de 5 repetições (meta $< 10$~s).
+\end{itemize}
+
+% ------------------------------------------------------------------------------
+\section{Desenvolvimento e Implementação da Solução}
+
+\subsection{Modelagem Computacional e Arquitetura}
+
+\paragraph{Grafo e matriz de tempos.} O território é um grafo completo dirigido $G=(V,E)$, com $V = \{0\} \cup F$: o vértice~0 é o ponto de partida (a UBS na CLI; o centro geográfico das famílias nos modos offline) e cada família é um vértice. Cada aresta $(i,j)$ tem o tempo $t_{ij}$ em minutos. Como o grafo é denso, a classe \texttt{TravelMatrix} usa um vetor contíguo NumPy \texttt{float32} de $|V|^2$ posições (cerca de 3,2~MB para 900 famílias), com acesso por linha vetorizado. Na CLI, a matriz vem do OSRM (\texttt{/table}, perfil a pé, assimétrica). Na GUI e na web, ela é estimada offline pela distância de \emph{haversine} a 30~km/h.
+
+\paragraph{Estruturas auxiliares.} Um dicionário (tabela \emph{hash}) mapeia o ID de cada família ao seu índice na matriz. A recompensa é uma matriz $5 \times n$ calculada uma única vez por plano. Uma máscara booleana global de famílias usadas garante a restrição~(i) entre todas as rotas. Cada rota guarda a sequência e somas de prefixo de tempo, o que permite avaliar movimentos de busca local em $\mathcal{O}(1)$.
+
+\paragraph{Arquitetura do ciclo 3.} O núcleo algorítmico, formado pelos módulos \texttt{reward.py}, \texttt{construction.py}, \texttt{local\_search.py} e \texttt{grasp.py}, foi preservado e recebeu apenas os parâmetros $\lambda$ e o multiplicador de prioridade manual. Sobre ele há três interfaces:
+\begin{itemize}
+    \item \textbf{CLI} (ciclo~2), com OSRM;
+    \item \textbf{GUI desktop} Tkinter (\texttt{gui.py}), que neste ciclo passou a ler \texttt{.xlsx} (\texttt{family\_files.py}), a ter formulário de cadastro manual, diálogo de prioridade por família e controles deslizantes de importância (0 a 2, passo 0,25);
+    \item \textbf{Interface web} Flask (\texttt{web.py}, nova), com banco SQLite (tabelas \texttt{families}, \texttt{agents}, \texttt{plans}, \texttt{completed\_visits}). Ela importa CSV/XLSX, cadastra famílias com seleção do ponto no mapa (Leaflet + geocodificação Nominatim configurável), ativa e desativa agentes, gera e guarda o histórico de planos, exibe mapas por dia com geometria viária OSRM e exporta o plano em CSV e as rotas em GPX. A data da última visita só é atualizada quando o agente registra a visita como \emph{realizada}, e não ao gerar o plano. O acesso tem senha opcional (\texttt{ACS\_WEB\_PASSWORD}) e proteção CSRF em todos os formulários. As telas seguem os três protótipos de interface do grupo (\texttt{prototipo/}).
+\end{itemize}
+
+\subsection{Algoritmos e Análise de Custo/Complexidade}
+
+O pipeline tem quatro etapas. Sejam $n$ o número de famílias, $S = 5m$ o número de rotas, $L$ o tamanho máximo de uma rota e $K$ o número de iterações do GRASP ($K = 50$).
+
+\begin{enumerate}
+    \item \textbf{Recompensas} (Eq.~\ref{eq:recompensa}): $\mathcal{O}(5n)$.
+    \item \textbf{Construção gulosa simultânea:} a cada passo, para cada rota aberta, filtra os candidatos elegíveis e viáveis (que ainda permitem voltar ao ponto de partida dentro do turno) e insere globalmente o par rota/família de maior razão recompensa/custo. Cada passo custa $\mathcal{O}(S\,n)$ operações vetorizadas, e há no máximo $n$ inserções: $\mathcal{O}(S\,n^2)$ no pior caso por iteração.
+    \item \textbf{Busca local por rota:} 2-Opt ($\mathcal{O}(L^2)$ por passada), inserção e substituição de famílias não usadas ($\mathcal{O}(L\,n)$ por passada), aceitando só movimentos com ganho mínimo e que respeitem o turno, com até 100 passadas. Famílias com dia fixo ativo não são substituídas.
+    \item \textbf{Preenchimento de capacidade} (modos offline): após o GRASP, insere repetidamente a família não atribuída de menor acréscimo de tempo em qualquer posição viável de qualquer rota, com desempate pelo risco. Cada inserção custa $\mathcal{O}(n\,S\,L)$.
+\end{enumerate}
+O custo total é $\mathcal{O}(K(S\,n^2 + S\,L\,n)) + \mathcal{O}(n_{\text{ins}} \cdot n\,S\,L)$ em tempo e $\mathcal{O}(n^2)$ em memória, dominada pela matriz de tempos. Como o problema é NP-difícil (generaliza o TOP), não se busca a solução ótima. O módulo \texttt{validation.py} certifica a otimalidade apenas quando o plano atinge o limite superior trivial (soma da maior recompensa possível de cada família).
+
+\paragraph{Mudanças algorítmicas do ciclo 3.} As alterações foram desenhadas para serem \emph{neutras} na posição padrão. Os expoentes $\lambda_{\text{risco}}$ e $\lambda_{\text{dia}}$ deixam o fator inalterado quando valem~1. O atraso é interpolado linearmente entre ``sem bônus'' ($\lambda=0$) e o bônus original ($\lambda=1$). $\lambda_{\text{fixo}}$ escala a recompensa fixa e $\lambda_{\text{desl}}$ escala o termo de deslocamento no denominador da razão gulosa. A prioridade manual é um multiplicador fora da escala de risco, para que o risco calculado continue visível e auditável separadamente.
+
+\subsection{Tratamento e Pré-processamento dos Dados}
+
+O carregador (\texttt{families\_loader.py}) é o único ponto de entrada para os três formatos. Planilhas \texttt{.xlsx} são convertidas em linhas de texto (datas do Excel em ISO~8601) e passam pela mesma validação do CSV. O carregador rejeita IDs duplicados, coordenadas fora de $[-90,90]\times[-180,180]$, sentinelas não binárias, datas inválidas, dia fixo sem periodicidade e prioridade manual fora do domínio \{baixa, normal, alta, urgente\}. A pontuação de Coelho-Savassi é a soma dos pontos das sentinelas (3 pontos para acamado, deficiências, desnutrição grave, saneamento precário e mais de um morador por cômodo; 2 para drogadição, desemprego e um morador por cômodo; 1 para hipertensão, diabetes, analfabetismo, menor de 6 meses e maior de 70 anos), classificada em $R0$ ($<5$), $R1$ (5--6), $R2$ (7--8) e $R3$ ($\geq 9$). Na web, a importação só substitui o cadastro atual depois que o arquivo inteiro é validado.
+
+% ------------------------------------------------------------------------------
+\section{Projeto Experimental e Metodologia de Validação}
+
+\subsection{Ambiente Experimental e Variáveis}
+\begin{itemize}
+    \item \textbf{Ambiente:} Apple M4 (10 núcleos), 16~GB de RAM, macOS 26.6.2, Python 3.14.0, NumPy e Flask nas versões resolvidas pelo \texttt{pyproject.toml}. Execução em um único processo, sem paralelismo explícito.
+    \item \textbf{Variáveis independentes:} tamanho da base $n \in \{100, 300, 600, 900\}$ e agentes $m \in \{1,2,3,4\}$ (pares fixos, como no ciclo~2); prioridade manual atribuída a um subconjunto de famílias; valor de cada $\lambda \in \{0;\,0{,}5;\,1;\,1{,}5;\,2\}$, variando um de cada vez.
+    \item \textbf{Variáveis dependentes:} tempo de execução; visitas na semana; cobertura por classe de risco (famílias visitadas/total da classe); percentual de visitas no dia ideal; minutos de deslocamento por visita; dias fixos não atendidos; fração das famílias marcadas que entra no plano.
+    \item \textbf{Variáveis de controle:} turno $T = 240$~min; semana iniciando em segunda-feira, 12/10/2026; semente 42; $K = 50$ iterações; demais parâmetros nos padrões de \texttt{config.py}; matriz offline a 30~km/h (o modo usado pela GUI e pela web, sem dependência de rede).
+\end{itemize}
+
+\subsection{Cenários e Protocolo de Coleta}
+
+Foram executados cinco experimentos com o script \texttt{scripts/experimentos\_ciclo3.py} (Apêndice~\ref{sec:repro}), que chama as mesmas funções do modo offline e mede separadamente o resultado do GRASP e o resultado final após o preenchimento de capacidade.
+\begin{itemize}
+    \item \textbf{E0 -- Compatibilidade ($H_2$a):} o código do ciclo~2 (\emph{commit} \texttt{9e2076f}) e o do ciclo~3 geram planos para os quatro cenários com parâmetros padrão, e as rotas são comparadas byte a byte.
+    \item \textbf{E1 -- Escala e tempo ($H_3$):} cinco repetições de cada cenário, com média e desvio-padrão do tempo. Como o algoritmo é determinístico para uma semente fixa, as cinco repetições também verificam a reprodutibilidade.
+    \item \textbf{E2 -- Prioridade manual ($H_1$):} no cenário 900/4, partimos do plano padrão e sorteamos 30 famílias flexíveis \emph{não} atendidas, com cinco sorteios independentes (sementes 0--4). Cada sorteio é remarcado como \emph{urgente} e, separadamente, como \emph{alta}. Como controle inverso, sorteamos 30 famílias $R3$ atendidas e as marcamos como \emph{baixa}.
+    \item \textbf{E3 -- Controles de importância ($H_2$b):} no cenário 600/3, cada $\lambda$ varia em cinco níveis com os demais em~1.
+    \item \textbf{E4 -- Iterações do GRASP (investigação de $H_3$):} no cenário 900/4, o número de iterações varia em $K \in \{1,5,10,20,50\}$, e as rotas são comparadas com as de $K=50$. Este experimento foi acrescentado depois do E1, para explicar o tempo observado.
+\end{itemize}
+Em todas as execuções, o script verifica as três restrições rígidas (unicidade, turno e dia fixo) e interrompe a coleta se alguma for violada.
+
+% ------------------------------------------------------------------------------
+\section{Resultados Experimentais e Discussão}
+\label{sec:resultados}
+
+Todas as execuções (mais de 60 planos) passaram nas três verificações de restrições rígidas: nenhuma família repetida, nenhuma rota acima do turno e nenhuma família com dia fixo ativo fora do seu dia. As 25 execuções de \texttt{pytest} do repositório também passam.
+
+\subsection{Apresentação dos Dados Coletados}
+
+\paragraph{E0 -- Compatibilidade.} Nos quatro cenários, as 5, 10, 15 e 20 rotas geradas pelo código do ciclo~3 com parâmetros padrão são idênticas, em dia, agente e sequência, às geradas pelo código do ciclo~2.
+
+\paragraph{E1 -- Escala e tempo.} A Tabela~\ref{tab:escala} resume a qualidade e o tempo de cada cenário. As cinco repetições produziram planos idênticos (o algoritmo é determinístico), e o desvio-padrão do tempo ficou abaixo de 2\% da média. Mais de 98\% do tempo é gasto no GRASP: o preenchimento de capacidade levou no máximo 0,18~s e acrescentou uma única visita (no cenário 900/4), porque as rotas já usavam mais de 98\% do turno.
+
+\begin{table}[ht]
+\centering
+\caption{E1: qualidade do plano e tempo de execução por cenário (turno de 240~min). Cobertura = famílias visitadas na semana / total da classe. Tempo $K{=}50$: média $\pm$ desvio-padrão de 5 repetições.}
+\label{tab:escala}
+\small
+\begin{tabular}{@{}cccccccccc@{}}
+\toprule
+ & & & \multicolumn{4}{c}{\textbf{Cobertura por risco (\%)}} & \textbf{Dia} & \textbf{Desl./} & \textbf{Tempo (s)} \\
+\cmidrule(lr){4-7}
+$n$ & $m$ & \textbf{Visitas} & $R0$ & $R1$ & $R2$ & $R3$ & \textbf{ideal (\%)} & \textbf{visita (min)} & $K{=}50$ \\ \midrule
+100 & 1 & 35  & 19,4 & 20,0 & 73,3 & 100,0 & 54,3 & 14,2 & 0,23 $\pm$ 0,003 \\
+300 & 2 & 77  & 11,8 & 12,2 & 50,9 & 80,0  & 61,0 & 10,3 & 1,95 $\pm$ 0,006 \\
+600 & 3 & 116 & 7,6  & 7,1  & 31,4 & 81,0  & 67,2 & 8,5  & 9,73 $\pm$ 0,18 \\
+900 & 4 & 151 & 5,2  & 10,4 & 24,1 & 64,4  & 67,5 & 9,4  & 28,17 $\pm$ 0,39 \\ \bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{E2 -- Prioridade manual.} No plano padrão do cenário 900/4, 677 famílias flexíveis ficaram de fora (313 $R0$, 221 $R1$, 110 $R2$, 33 $R3$). A Tabela~\ref{tab:prioridade} mostra o efeito de remarcar 30 delas, em cinco sorteios.
+
+\begin{table}[ht]
+\centering
+\caption{E2: efeito da prioridade manual (900 famílias, 4 agentes; 5 sorteios de 30 famílias). Plano de referência: 151 visitas, cobertura $R3$ de 64,4\%.}
+\label{tab:prioridade}
+\small
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+\textbf{Marcação} & \textbf{\shortstack{Marcadas\\no plano}} & \textbf{\shortstack{Faixa por\\sorteio}} & \textbf{\shortstack{Cobertura\\$R3$ (\%)}} & \textbf{\shortstack{Visitas\\(média)}} \\ \midrule
+\emph{urgente} (não atendidas)  & 145/150 (96,7\%) & 28--30 & 55,3 & 162,0 \\
+\emph{alta} (não atendidas)     & 77/150 (51,3\%)  & 11--21 & 62,8 & 153,2 \\
+\emph{baixa} ($R3$ atendidas)   & 14/150 (9,3\%)   & 2--4   & 56,0 & 153,4 \\ \bottomrule
+\end{tabular}
+\end{table}
+
+As cinco famílias urgentes que ficaram de fora eram todas $R0$ (74 de 79 incluídas), e todas as urgentes $R1$--$R3$ entraram. Com \emph{alta}, a inclusão depende da classe: 31,6\% das $R0$, 62,7\% das $R1$ e 100\% das $R2$ e $R3$. O efeito colateral de \emph{urgente} é relevante: as 30 famílias urgentes deslocaram em média 9 famílias $R3$ (cobertura de 64,4\% para 55,3\%). O total de visitas subiu porque as famílias urgentes eram, em sua maioria, de visita curta (10--15~min).
+
+\paragraph{E3 -- Controles de importância.} A Tabela~\ref{tab:controles} mostra o efeito de cada controle no cenário 600/3.
+
+\begin{table}[ht]
+\centering
+\caption{E3: efeito de cada controle de importância (600 famílias, 3 agentes), variando um de cada vez. Em negrito, o valor padrão. ``Fixos fora'' = famílias com dia fixo ativo não atendidas.}
+\label{tab:controles}
+\footnotesize
+\begin{tabular}{@{}llcccccc@{}}
+\toprule
+\textbf{Controle} & \textbf{Valor} & \textbf{Visitas} & \textbf{\shortstack{Cob.\\$R3$ (\%)}} & \textbf{\shortstack{Cob.\\$R2$ (\%)}} & \textbf{\shortstack{Dia\\ideal (\%)}} & \textbf{\shortstack{Desl./visita\\(min)}} & \textbf{\shortstack{Fixos\\fora}} \\ \midrule
+Risco ($\lambda_{\text{risco}}$) & 0,0 & 172 & 41,3 & 23,8 & 58,1 & 5,5 & 0 \\
+ & 0,5 & 142 & 55,6 & 34,3 & 69,0 & 6,7 & 0 \\
+ & \textbf{1,0} & 116 & 81,0 & 31,4 & 67,2 & 8,5 & 0 \\
+ & 1,5 & 116 & 81,0 & 28,6 & 62,9 & 8,8 & 0 \\
+ & 2,0 & 113 & 84,1 & 28,6 & 68,1 & 8,8 & 2 \\
+\midrule
+Atraso ($\lambda_{\text{atraso}}$) & 0,0 & 119 & 76,2 & 35,2 & 67,2 & 8,1 & 0 \\
+ & 0,5 & 117 & 81,0 & 32,4 & 66,7 & 8,2 & 0 \\
+ & \textbf{1,0} & 116 & 81,0 & 31,4 & 67,2 & 8,5 & 0 \\
+ & 1,5 & 118 & 79,4 & 32,4 & 66,1 & 8,3 & 0 \\
+ & 2,0 & 115 & 77,8 & 32,4 & 66,1 & 8,8 & 0 \\
+\midrule
+Dia ideal ($\lambda_{\text{dia}}$) & 0,0 & 121 & 93,7 & 21,9 & 38,0 & 7,2 & 0 \\
+ & 0,5 & 118 & 77,8 & 33,3 & 62,7 & 8,4 & 0 \\
+ & \textbf{1,0} & 116 & 81,0 & 31,4 & 67,2 & 8,5 & 0 \\
+ & 1,5 & 114 & 79,4 & 33,3 & 69,3 & 8,8 & 0 \\
+ & 2,0 & 113 & 77,8 & 33,3 & 69,9 & 9,2 & 0 \\
+\midrule
+Dia marcado ($\lambda_{\text{fixo}}$) & 0,0 & 106 & 90,5 & 38,1 & 54,7 & 8,7 & 27 \\
+ & 0,5 & 116 & 81,0 & 31,4 & 67,2 & 8,5 & 0 \\
+ & \textbf{1,0} & 116 & 81,0 & 31,4 & 67,2 & 8,5 & 0 \\
+ & 1,5 & 116 & 81,0 & 31,4 & 67,2 & 8,5 & 0 \\
+ & 2,0 & 116 & 81,0 & 31,4 & 67,2 & 8,5 & 0 \\
+\midrule
+Deslocamento ($\lambda_{\text{desl}}$) & 0,0 & 99 & 69,8 & 20,0 & 69,7 & 14,3 & 0 \\
+ & 0,5 & 116 & 77,8 & 32,4 & 66,4 & 8,7 & 0 \\
+ & \textbf{1,0} & 116 & 81,0 & 31,4 & 67,2 & 8,5 & 0 \\
+ & 1,5 & 117 & 79,4 & 32,4 & 65,8 & 8,2 & 0 \\
+ & 2,0 & 117 & 79,4 & 34,3 & 65,8 & 8,1 & 0 \\ \bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{E4 -- Iterações do GRASP.} Investigando o tempo do E1, variamos $K \in \{1, 5, 10, 20, 50\}$ no cenário 900/4. As rotas foram \emph{idênticas} para todos os valores de $K$, e o tempo cresceu linearmente com $K$: 0,86~s ($K{=}1$), 3,1~s, 5,8~s, 11,3~s e 28,5~s ($K{=}50$). A igualdade com $K{=}1$ também vale para os outros três cenários (0,02~s, 0,07~s e 0,30~s). A causa está no código herdado: o parâmetro \texttt{alpha}, que controlaria a lista restrita de candidatos, é mantido ``por compatibilidade'', mas a construção é puramente gulosa. Sem aleatorização, cada iteração reconstrói a mesma semana. Testamos também o pré-filtro geográfico já existente (\texttt{use\_neighbor\_prefilter}). Ele reduz o tempo para 10,9~s, mas altera a natureza da solução: a cobertura $R3$ cai para 41,6\% e o percentual no dia ideal para 27,0\%, pois o algoritmo passa a escolher apenas vizinhos próximos.
+
+\subsection{Validação ou Refutação das Hipóteses}
+\begin{itemize}
+    \item \textbf{Hipótese $H_1$ -- confirmada.} Das famílias marcadas como \emph{urgente}, 96,7\% entraram no plano (mínimo de 28/30 por sorteio), acima da meta de 90\%, sem violações de restrições. A confirmação vem com uma ressalva de projeto: como a prioridade multiplica o peso ($\pi_{\text{urgente}}=4$) e a razão gulosa divide pelo tempo de atendimento, uma família $R0$ urgente (peso efetivo $1 \times 4 = 4$, atendimento de 10~min) fica mais atrativa que uma família $R3$ normal (peso 8, atendimento de 30~min). O custo foi de 0,3 família $R3$ deslocada por urgência atendida. A interface deve deixar esse custo explícito. Uma alternativa a discutir com a equipe é tratar \emph{urgente} como restrição de inclusão, e não como peso.
+    \item \textbf{Hipótese $H_2$ -- confirmada.} (a)~E0 mostrou planos idênticos aos do ciclo~2 na posição padrão. (b)~As três relações monotônicas previstas se verificaram: a cobertura $R3$ cresceu com $\lambda_{\text{risco}}$ (41,3 $\to$ 55,6 $\to$ 81,0 $\to$ 81,0 $\to$ 84,1\%); o deslocamento por visita caiu com $\lambda_{\text{desl}}$ (14,3 $\to$ 8,7 $\to$ 8,5 $\to$ 8,2 $\to$ 8,1~min); e o percentual no dia ideal cresceu com $\lambda_{\text{dia}}$ (38,0 $\to$ 62,7 $\to$ 67,2 $\to$ 69,3 $\to$ 69,9\%). Há três observações fora do escopo da hipótese. O controle de atraso tem efeito fraco e não monotônico (cobertura $R3$ entre 76,2\% e 81,0\%), porque nessa base todas as famílias $R3$ já estão atrasadas e o bônus satura no teto de 2,5. O controle de dia marcado satura: acima de 0,5 todas as visitas fixas já são atendidas. E desligar o dia marcado ($\lambda_{\text{fixo}}=0$) ou elevar o risco ao máximo ($\lambda_{\text{risco}}=2$) deixa famílias com dia fixo sem visita (27 e 2, respectivamente). O sistema nunca as coloca em outro dia, mas o texto da interface (``os dias fixos continuam sendo respeitados'') pode levar o usuário a esperar que sejam sempre atendidas.
+    \item \textbf{Hipótese $H_3$ -- refutada na configuração herdada.} O cenário 900/4 levou $28{,}17 \pm 0{,}39$~s, quase três vezes a meta de 10~s, e o 600/3 ficou no limite (9,73~s). Na web, o plano é gerado dentro da requisição HTTP, então o usuário espera esse tempo com a página parada. O E4 identificou a causa e mostrou que, com $K=1$, o mesmo plano sai em 0,86~s. Mantemos a hipótese como refutada porque ela se referia ao sistema tal como entregue, e a correção ainda não foi aplicada ao código.
+    \item \textbf{Complexidade empírica vs.\ teórica.} Com o número de inserções limitado pela capacidade (cerca de $V$ visitas por semana, e não $n$), o custo esperado da construção é $\mathcal{O}(K\,S\,n\,V)$. Relativo ao cenário 100/1, esse modelo prevê fatores de 13, 60 e 155 para os cenários 300/2, 600/3 e 900/4. Os fatores medidos foram 8,7, 43 e 125: mesma ordem de crescimento, um pouco abaixo do previsto, o que é coerente com a vetorização NumPy, cujo custo fixo por chamada se dilui com $n$ maior. O crescimento linear em $K$ (E4) confirma o fator $K$.
+\end{itemize}
+
+\subsection{Discussão Técnica e Limitações Observadas}
+\label{sec:limitacoes}
+\begin{itemize}
+    \item \textbf{Iterações redundantes:} o principal gargalo de desempenho é um defeito herdado (E4), e não a escala do problema. A correção imediata é usar $K=1$. A correção de fundo é reintroduzir a aleatorização da lista restrita de candidatos (RCL), o que tornaria as iterações úteis e transformaria o GRASP no que o nome descreve.
+    \item \textbf{Sobrescrita das bases de teste:} a GUI grava a data da visita \emph{planejada} no arquivo de entrada ao processar. Por isso, \texttt{dataset100.csv} e \texttt{dataset300.csv} foram versionados neste ciclo com datas alteradas (as famílias incluídas nos planos gerados passaram a ter última visita em novembro de 2026), o que muda qualquer experimento feito com eles. Na web corrigimos esse comportamento: a data só muda quando a visita é registrada como realizada. Na GUI, recomendamos trabalhar sobre uma cópia.
+    \item \textbf{Paridade entre interfaces:} os controles de importância existem apenas na GUI; a web usa sempre os valores padrão. Na web, o turno é igual para todos os agentes, e a microárea do agente é exibida mas não restringe a atribuição.
+    \item \textbf{Modelo de deslocamento:} GUI e web estimam os tempos em linha reta a 30~km/h de carro, partindo do centro geográfico das famílias, enquanto as visitas reais são em grande parte a pé e partem da UBS. Os tempos absolutos são, portanto, apenas indicativos. Só a CLI usa o OSRM com perfil a pé.
+    \item \textbf{Validade externa:} todos os resultados vêm de dados sintéticos. Pesos, tempos de atendimento e intervalos-alvo continuam sendo hipóteses, e ainda não colhemos o retorno dos profissionais sobre a usabilidade das interfaces.
+\end{itemize}
+
+% ------------------------------------------------------------------------------
+\section{Análise de Impacto e Transferência Tecnológica}
+
+\subsection{Análise Multidimensional de Impacto}
+\begin{itemize}
+    \item \textbf{Impacto social e cidadania:} os beneficiários diretos são os ACS e os enfermeiros que montam a agenda. Os indiretos são as famílias do território, sobretudo as de maior vulnerabilidade, que passam a ter a visita garantida por um critério explícito. A prioridade manual devolve à equipe o julgamento clínico que a escala não captura, sem descartar a escala.
+    \item \textbf{Impacto econômico e eficiência operacional:} a agenda semanal, que hoje exige cruzar à mão centenas de famílias, é gerada em segundos e pode ser refeita sempre que um agente falta ou surge uma urgência. O registro de visitas realizadas na web fecha o ciclo planejar--visitar--registrar--replanejar sem retrabalho de planilha.
+    \item \textbf{Dimensão ética, legal e governança de dados (LGPD):}
+    \begin{itemize}
+        \item O sistema trata dados pessoais \emph{sensíveis} de saúde (art.~5º, II, da LGPD~\cite{lgpd}), como hipertensão, deficiência e drogadição, associados a endereço e nome do responsável. O tratamento se enquadra na tutela da saúde por profissionais e serviços de saúde (art.~11, II, f), mas exige minimização e segurança. Neste ciclo: todos os experimentos usam dados sintéticos; a web guarda os dados em um banco local da própria unidade, com senha opcional, chave de sessão configurável e proteção CSRF; e a documentação alerta que o Nominatim público proíbe o envio de dados pessoais, recomendando instância própria para geocodificação e mapas. Ainda faltam controle de acesso por usuário com trilha de auditoria, criptografia do banco em repouso e HTTPS obrigatório.
+        \item \textbf{Risco de viés:} os pesos por classe (1, 2, 4, 8), os tempos de atendimento e os intervalos entre visitas são hipóteses não validadas com uma UBS. A preferência do algoritmo por famílias de alto risco faz com que famílias $R0$ quase nunca sejam visitadas quando a capacidade é escassa. Isso é coerente com a diretriz de ``tratar desigualmente os desiguais''~\cite{coelho2004}, mas pode deixar famílias sem nenhum contato. A prioridade manual é, ao mesmo tempo, um mecanismo de correção e uma porta para vieses individuais. Por isso o risco calculado e a prioridade manual são exibidos lado a lado.
+        \item \textbf{Rastreabilidade e explicabilidade:} o algoritmo é determinístico para uma semente, a recompensa tem forma fechada (Eq.~\ref{eq:recompensa}) e a web guarda o histórico de planos com as famílias, as prioridades e o relatório usados em cada um. Isso permite explicar por que uma família entrou ou ficou de fora.
+    \end{itemize}
+    \item \textbf{Impacto ambiental:} as visitas são, em grande parte, feitas a pé, então o ganho direto em emissões é pequeno. O controle de deslocamento, porém, reduz o tempo de caminhada por visita (Seção~\ref{sec:resultados}), e o custo computacional é desprezível (segundos em um computador pessoal, sem servidor dedicado).
+\end{itemize}
+
+\subsection{Viabilidade de Implantação e Transferência Tecnológica}
+\begin{itemize}
+    \item \textbf{Aderência ao setor de aplicação:} o público natural são as secretarias municipais de saúde e as UBS da Estratégia Saúde da Família. A proposta apresentada aos profissionais é um piloto em uma unidade de Porto Alegre, comparando a agenda gerada com a agenda atual em cobertura por risco, atrasos e avaliação da equipe. Parceiros possíveis são a Secretaria Municipal de Saúde e o núcleo de telessaúde da UFRGS.
+    \item \textbf{Desafios para ambiente de produção:} a web roda em um único computador da unidade (servidor WSGI \texttt{waitress}, SQLite), e os demais acessam pelo navegador. Para produção são necessários HTTPS, contas individuais, \emph{backup} do banco, instâncias próprias de OSRM e Nominatim (para não enviar endereços a terceiros) e, sobretudo, integração com o e-SUS APS / PEC, de onde viriam o cadastro e as sentinelas. Hoje o cadastro é importado manualmente.
+    \item \textbf{Manutenibilidade e sustentabilidade da base:} a qualidade do plano depende de a data da última visita estar correta. A web só altera essa data quando a visita é registrada como realizada, o que corrige um problema da versão desktop (Seção~\ref{sec:limitacoes}). As sentinelas devem ser atualizadas a cada revisão da Ficha~A, e os pesos e tempos devem ser recalibrados com a equipe após o piloto.
+\end{itemize}
+
+% ------------------------------------------------------------------------------
+\section{Conclusões e Lições Aprendidas do Processo de P\&D}
+
+\subsection{Síntese dos Resultados Técnicos}
+As modificações pedidas pelos profissionais de saúde foram incorporadas sem quebrar o comportamento herdado: na posição padrão, o sistema gera exatamente os planos do ciclo~2. A prioridade manual cumpre o que promete (96,7\% das famílias urgentes entram no plano), e os controles de risco, dia ideal e deslocamento movem suas métricas na direção anunciada. Em todos os planos, as restrições rígidas foram respeitadas. O tempo de resposta não atendeu a meta para 900 famílias, mas a investigação mostrou que a causa é a repetição de iterações idênticas, e que a mesma solução sai em menos de 1~s.
+
+\subsection{O Que Funcionou vs. O Que Não Funcionou}
+\begin{itemize}
+    \item \textbf{Funcionou:} levar o protótipo aos profissionais antes de codificar. As quatro modificações vieram dessas conversas, e os protótipos de tela guiaram a interface web. Também funcionou desenhar os controles como fatores neutros na posição padrão, o que tornou a compatibilidade verificável por comparação exata (E0). A separação entre ``gerar plano'' e ``registrar visita realizada'' na web resolveu o problema da sobrescrita de datas.
+    \item \textbf{Não funcionou ou precisou ser revisto:} a premissa, herdada do ciclo~2, de que as 50 iterações do GRASP melhoravam a solução; a GUI alterando o arquivo de entrada, que contaminou as bases versionadas; e a prioridade \emph{urgente} como multiplicador de peso, que funciona mas tira vagas de famílias de alto risco de forma pouco transparente para o usuário. Os controles de atraso e de dia marcado mostraram efeito pequeno ou saturado nas bases sintéticas, o que sugere simplificar a interface ou recalibrar suas escalas.
+\end{itemize}
+
+\subsection{Próximos Passos de Pesquisa e Desenvolvimento}
+\begin{enumerate}
+    \item Aplicar $K=1$ como padrão e, em seguida, reintroduzir a RCL aleatorizada ($\alpha > 0$), medindo se as iterações passam a melhorar a recompensa total;
+    \item Executar o planejamento da web em segundo plano, com indicação de progresso, e levar os controles de importância para a web;
+    \item Tratar \emph{urgente} como restrição de inclusão (ou com reserva de capacidade) e mostrar ao usuário quantas famílias de alto risco foram deslocadas;
+    \item Implementar a busca local entre dias e entre agentes (trocas e realocações), item já listado como trabalho futuro no ciclo~2;
+    \item Usar tempos reais a pé (OSRM próprio) também na web e respeitar a microárea de cada agente na atribuição;
+    \item Conduzir o piloto em uma UBS com dados reais anonimizados: calibrar pesos, tempos e intervalos com a equipe e avaliar a usabilidade com os agentes.
+\end{enumerate}
+
+% ------------------------------------------------------------------------------
+\begin{thebibliography}{99}
+
+\bibitem{coelho2004}
+F. L. G. Coelho e L. C. M. Savassi.
+\textit{Aplicação de Escala de Risco Familiar como instrumento de priorização das Visitas Domiciliares}.
+Revista Brasileira de Medicina de Família e Comunidade, v.~1, n.~2, 2004.
+
+\bibitem{cinar2021}
+A. \c{C}{\i}nar, F. S. Salman e B. Bozkaya.
+\textit{Prioritized single nurse routing and scheduling for home healthcare services}.
+European Journal of Operational Research, v.~289, n.~3, p.~867--878, 2021.
+
+\bibitem{mankowska2014}
+D. S. Mankowska, F. Meisel e C. Bierwirth.
+\textit{The home health care routing and scheduling problem with interdependent services}.
+Health Care Management Science, v.~17, n.~1, p.~15--30, 2014.
+
+\bibitem{chao1996}
+I-M. Chao, B. L. Golden e E. A. Wasil.
+\textit{The team orienteering problem}.
+European Journal of Operational Research, v.~88, n.~3, p.~464--474, 1996.
+
+\bibitem{feo1995}
+T. A. Feo e M. G. C. Resende.
+\textit{Greedy Randomized Adaptive Search Procedures}.
+Journal of Global Optimization, v.~6, p.~109--133, 1995.
+
+\bibitem{osrm}
+D. Luxen e C. Vetter.
+\textit{Real-time routing with OpenStreetMap data}.
+Proc.\ 19th ACM SIGSPATIAL GIS, 2011. Disponível em: \url{https://project-osrm.org}.
+
+\bibitem{cormen}
+T. H. Cormen, C. E. Leiserson, R. L. Rivest e C. Stein.
+\textit{Introduction to Algorithms}. 3rd ed. MIT Press, 2009.
+
+\bibitem{lgpd}
+BRASIL.
+\textit{Lei Geral de Proteção de Dados Pessoais (LGPD)}, Lei nº 13.709/2018.
+
+\end{thebibliography}
+
+% ------------------------------------------------------------------------------
+\appendix
+\section{Guia de Reprodutibilidade}
+\label{sec:repro}
+
+\begin{lstlisting}[language=bash, caption={Instruções de execução dos testes, da interface web e dos experimentos}]
+# 1. Clonar o repositorio
+git clone https://github.com/tobiasMarion/mTSP-health-router.git
+cd mTSP-health-router/acs_routing
+
+# 2. Instalar dependencias (Python >= 3.11)
+python3 -m venv .venv
+.venv/bin/pip install -e '.[web,osrm]' pytest
+
+# 3. Testes automatizados
+.venv/bin/python -m pytest -q
+
+# 4. Interface web (http://127.0.0.1:8000)
+.venv/bin/python -m acs_routing.web
+
+# 5. Experimentos E1-E3 (usa as bases originais do ciclo 2)
+mkdir -p /tmp/acs-dados
+for n in 100 300 600 900; do
+  git show 9e2076f:acs_routing/data/dataset$n.csv > /tmp/acs-dados/dataset$n.csv
+done
+.venv/bin/python scripts/experimentos_ciclo3.py /tmp/acs-dados resultados.json
+\end{lstlisting}
+
+\end{document}
